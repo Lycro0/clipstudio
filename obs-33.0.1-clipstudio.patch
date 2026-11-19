@@ -1,0 +1,29 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -18,6 +18,7 @@
+ option(ENABLE_FRONTEND "Enable building with UI (requires Qt)" ON)
+ option(ENABLE_SCRIPTING "Enable scripting support" ON)
+ option(ENABLE_HEVC "Enable HEVC encoders" ON)
++option(ENABLE_CLIPPER "Build ClipStudio (clip/record-only frontend)" ON)
+ 
+ add_subdirectory(libobs)
+ if(OS_WINDOWS)
+@@ -34,4 +35,8 @@
+ 
+ add_subdirectory(frontend)
+ 
++if(ENABLE_CLIPPER)
++  add_subdirectory(clipper)
++endif()
++
+ message_configuration()
+--- a/plugins/obs-ffmpeg/ffmpeg-mux/ffmpeg-mux.c
++++ b/plugins/obs-ffmpeg/ffmpeg-mux/ffmpeg-mux.c
+@@ -529,6 +529,8 @@
+ 		return;
+ 
+ 	av_dict_set(&stream->metadata, "title", ffm->audio[idx].name, 0);
++	/* MP4/MOV drop per-track "title"; handler_name survives so editors see track names. */
++	av_dict_set(&stream->metadata, "handler_name", ffm->audio[idx].name, 0);
+ 
+ 	stream->time_base = (AVRational){1, ffm->audio[idx].sample_rate};
