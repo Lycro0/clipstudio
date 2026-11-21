@@ -1,6 +1,7 @@
 #include "MainWindow.hpp"
 #include "Engine.hpp"
 #include "Hotkeys.hpp"
+#include "Updater.hpp"
 #include "WinUtil.hpp"
 #include "ClipEditor.hpp"
 
@@ -18,6 +19,7 @@
 #include <QGroupBox>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QKeySequenceEdit>
 #include <QLabel>
 #include <QLineEdit>
@@ -49,8 +51,16 @@ MainWindow::MainWindow(Engine *eng, QWidget *parent) : QMainWindow(parent), engi
 			ToggleVisible();
 	});
 
-	setWindowTitle("ClipStudio");
-	setWindowIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+	updater = new Updater(this, this);
+	connect(updater, &Updater::Status, this, [this](const QString &m) {
+		Log(m);
+		Notify("ClipStudio", m);
+	});
+	connect(updater, &Updater::UpdateAvailable, this,
+		[this](const QString &v) { Log(tr("Update available: ClipStudio %1").arg(v)); });
+
+	setWindowTitle(QString("ClipStudio %1").arg(Updater::CurrentVersion()));
+	setWindowIcon(QIcon(":/icon.png"));
 	resize(1100, 720);
 
 	settings.load();
@@ -298,6 +308,14 @@ QWidget *MainWindow::BuildSettingsTab()
 	of->addRow(tr("Audio bitrate (per track)"), aBitrate);
 	startMin = new QCheckBox(tr("Start hidden in the system tray"));
 	of->addRow("", startMin);
+	autoUpdate = new QCheckBox(tr("Check for updates automatically (once a day)"));
+	auto *checkNow = new QPushButton(tr("Check now"));
+	auto *updRow = new QHBoxLayout;
+	updRow->addWidget(autoUpdate);
+	updRow->addWidget(checkNow);
+	updRow->addStretch(1);
+	of->addRow(tr("Updates"), updRow);
+	connect(checkNow, &QPushButton::clicked, this, [this]() { updater->Check(true); });
 	l->addWidget(out);
 
 	auto *apply = new QPushButton(tr("Apply"));
@@ -387,6 +405,8 @@ void MainWindow::LoadSettingsIntoUi()
 	vBitrate->setValue(settings.videoBitrate);
 	aBitrate->setValue(settings.audioBitrate);
 	startMin->setChecked(settings.startMinimized);
+	autoUpdate->setChecked(settings.autoUpdate);
+	updater->SetEnabled(settings.autoUpdate);
 
 	modeGame->setChecked(settings.captureMode == CaptureMode::Game);
 	modeDesktop->setChecked(settings.captureMode == CaptureMode::Desktop);
@@ -430,6 +450,7 @@ AppSettings MainWindow::SettingsFromUi() const
 	s.videoBitrate = vBitrate->value();
 	s.audioBitrate = aBitrate->value();
 	s.startMinimized = startMin->isChecked();
+	s.autoUpdate = autoUpdate->isChecked();
 	s.captureMode = modeDesktop->isChecked() ? CaptureMode::Desktop : CaptureMode::Game;
 	s.gameExe = gameWindow->currentData().toString();
 	s.monitorId = monitor->currentData().toString();
@@ -486,6 +507,7 @@ void MainWindow::ApplySettings()
 		return;
 	}
 	settings = s;
+	updater->SetEnabled(settings.autoUpdate);
 	ApplyHotkeys();
 	editor->SetFolder(settings.outputDir);
 	editor->SetAudioBitrate(settings.audioBitrate);
@@ -498,15 +520,17 @@ void MainWindow::UpdateStatus()
 {
 	bool buf = engine->IsBufferActive();
 	bool rec = engine->IsRecording();
-	bufferStatus->setText(buf ? tr("● Clip buffer ON (%1 s)").arg(settings.clipSeconds) : tr("○ Clip buffer OFF"));
+	/* Status: green dot = on, red dot = off. Text stays white/grey. */
+	const QString green = "#3ddc84", red = "#ff4d4d";
 	int px = (int)(18 * scale);
-	bufferStatus->setStyleSheet(QString("font-size: %1px; font-weight: bold; padding: 8px; color: %2;")
-					    .arg(px)
-					    .arg(buf ? "#ffffff" : "#6b6b6b"));
-	recStatus->setText(rec ? tr("● RECORDING") : tr("○ Not recording"));
-	recStatus->setStyleSheet(QString("font-size: %1px; font-weight: bold; padding: 8px; color: %2;")
-					 .arg(px)
-					 .arg(rec ? "#ff4d4d" : "#6b6b6b"));
+	auto line = [&](bool on, const QString &text) {
+		return QString("<span style=\"color:%1\">●</span>&nbsp; <span style=\"color:%2\">%3</span>")
+			.arg(on ? green : red, on ? "#ffffff" : "#9a9a9a", text.toHtmlEscaped());
+	};
+	bufferStatus->setText(line(buf, buf ? tr("Clip buffer ON (%1 s)").arg(settings.clipSeconds) : tr("Clip buffer OFF")));
+	recStatus->setText(line(rec, rec ? tr("Recording") : tr("Not recording")));
+	for (QLabel *lab : {bufferStatus, recStatus})
+		lab->setStyleSheet(QString("font-size: %1px; font-weight: bold; padding: 8px;").arg(px));
 	recBtn->setText(rec ? tr("Stop Recording") : tr("Start Recording"));
 	trayRecord->setText(recBtn->text());
 	clipBtn->setEnabled(buf);
