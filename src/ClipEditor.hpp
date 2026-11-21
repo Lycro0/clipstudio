@@ -25,6 +25,7 @@ public:
 
 	void SetFolder(const QString &folder);
 	void SetAudioBitrate(int kbps) { audioKbps = kbps; }
+	void SetScale(double scale);
 
 public slots:
 	void RefreshList();
@@ -48,6 +49,7 @@ private:
 	QString currentPath;
 	ClipInfo info;
 	int audioKbps = 192;
+	double uiScale = 1.0;
 
 	QListWidget *list;
 	QLabel *title;

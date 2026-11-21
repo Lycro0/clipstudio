@@ -47,7 +47,6 @@ ClipEditor::ClipEditor(QWidget *parent) : QWidget(parent)
 	auto *right = new QWidget;
 	auto *rl = new QVBoxLayout(right);
 	title = new QLabel(tr("Select a clip on the left"));
-	title->setStyleSheet("font-size: 16px; font-weight: bold;");
 	details = new QLabel;
 	rl->addWidget(title);
 	rl->addWidget(details);
@@ -125,6 +124,18 @@ ClipEditor::~ClipEditor()
 		worker.join();
 }
 
+void ClipEditor::SetScale(double scale)
+{
+	uiScale = scale;
+	QFont tf = font();
+	tf.setBold(true);
+	tf.setPointSizeF(tf.pointSizeF() * 1.4);
+	title->setFont(tf);
+	for (QPushButton *b : {playOrigBtn, resetBtn, previewBtn, saveBtn, overwriteBtn, cancelBtn})
+		b->setMinimumHeight((int)(36 * scale));
+	progress->setMinimumHeight((int)(14 * scale));
+}
+
 void ClipEditor::SetFolder(const QString &f)
 {
 	folder = f;
@@ -189,7 +200,7 @@ void ClipEditor::BuildTrackRows()
 	for (int i = 0; i < info.tracks.size(); i++) {
 		auto *row = new QHBoxLayout;
 		auto *label = new QLabel(QString("%1. %2").arg(i + 1).arg(info.tracks[i].title));
-		label->setMinimumWidth(160);
+		label->setMinimumWidth((int)(160 * uiScale));
 		auto *slider = new QSlider(Qt::Horizontal);
 		slider->setRange(0, 200);
 		slider->setValue(100);

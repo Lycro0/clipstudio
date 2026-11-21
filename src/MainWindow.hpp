@@ -32,6 +32,7 @@ public:
 
 protected:
 	void closeEvent(QCloseEvent *event) override;
+	void resizeEvent(QResizeEvent *event) override;
 
 private:
 	QWidget *BuildHomeTab();
@@ -45,6 +46,8 @@ private:
 	void Log(const QString &msg);
 	void Notify(const QString &title, const QString &msg);
 	void ApplySettings();
+	void ApplyScale();
+	void UpdateAutoTracks();
 
 	Engine *engine;
 	Hotkeys *hotkeys;
@@ -73,6 +76,14 @@ private:
 	QRadioButton *audioSimple, *audioPerApp;
 	QComboBox *micDev, *deskDev;
 	QGroupBox *appsGroup;
+	QSpinBox *autoTracks;
+	QLabel *autoStatus;
+	QCheckBox *allMonitors;
+
+	/* size-based scaling */
+	double scale = 1.0;
+	double baseFontPt = 9.0;
+	QList<QPushButton *> bigButtons;
 	struct AppRow {
 		QComboBox *app;
 		QLineEdit *name;

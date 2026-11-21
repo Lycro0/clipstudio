@@ -7,6 +7,8 @@
 
 #include <unknwn.h>
 #include <mmdeviceapi.h>
+#include <audiopolicy.h>
+#include <tlhelp32.h>
 #include <functiondiscoverykeys_devpkey.h>
 #include <algorithm>
 
@@ -116,6 +118,11 @@ QString ExeForWindow(HWND hwnd)
 {
 	DWORD pid = 0;
 	GetWindowThreadProcessId(hwnd, &pid);
+	return ExeForProcess(pid);
+}
+
+QString ExeForProcess(DWORD pid)
+{
 	HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
 	if (!h)
 		return QString();
@@ -217,6 +224,63 @@ HWND FindFullscreenWindow()
 	if (wr.left <= m.left && wr.top <= m.top && wr.right >= m.right && wr.bottom >= m.bottom)
 		return fg;
 	return nullptr;
+}
+
+QStringList AppsPlayingAudio()
+{
+	QStringList apps;
+	Microsoft::WRL::ComPtr<IMMDeviceEnumerator> en;
+	if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&en))))
+		return apps;
+	Microsoft::WRL::ComPtr<IMMDeviceCollection> col;
+	if (FAILED(en->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &col)))
+		return apps;
+	UINT n = 0;
+	col->GetCount(&n);
+	for (UINT i = 0; i < n; i++) {
+		Microsoft::WRL::ComPtr<IMMDevice> dev;
+		Microsoft::WRL::ComPtr<IAudioSessionManager2> mgr;
+		Microsoft::WRL::ComPtr<IAudioSessionEnumerator> sessions;
+		if (FAILED(col->Item(i, &dev)) ||
+		    FAILED(dev->Activate(__uuidof(IAudioSessionManager2), CLSCTX_ALL, nullptr,
+					 (void **)mgr.GetAddressOf())) ||
+		    FAILED(mgr->GetSessionEnumerator(&sessions)))
+			continue;
+		int count = 0;
+		sessions->GetCount(&count);
+		for (int k = 0; k < count; k++) {
+			Microsoft::WRL::ComPtr<IAudioSessionControl> ctl;
+			Microsoft::WRL::ComPtr<IAudioSessionControl2> ctl2;
+			if (FAILED(sessions->GetSession(k, &ctl)) || FAILED(ctl.As(&ctl2)))
+				continue;
+			AudioSessionState state;
+			if (FAILED(ctl2->GetState(&state)) || state != AudioSessionStateActive)
+				continue;
+			if (ctl2->IsSystemSoundsSession() == S_OK)
+				continue;
+			DWORD pid = 0;
+			if (FAILED(ctl2->GetProcessId(&pid)) || pid == 0 || pid == GetCurrentProcessId())
+				continue;
+			QString exe = ExeForProcess(pid);
+			if (!exe.isEmpty() && !apps.contains(exe, Qt::CaseInsensitive))
+				apps << exe;
+		}
+	}
+	return apps;
+}
+
+bool IsProcessRunning(const QString &exe)
+{
+	HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	if (snap == INVALID_HANDLE_VALUE)
+		return false;
+	std::wstring want = exe.toStdWString();
+	bool found = false;
+	PROCESSENTRY32W pe = {sizeof(pe)};
+	for (BOOL ok = Process32FirstW(snap, &pe); ok && !found; ok = Process32NextW(snap, &pe))
+		found = _wcsicmp(pe.szExeFile, want.c_str()) == 0;
+	CloseHandle(snap);
+	return found;
 }
 
 } // namespace WinUtil

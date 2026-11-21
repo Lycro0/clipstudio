@@ -27,12 +27,19 @@ Change them in **Settings → Hotkeys**.
 The video is the size of your screen, and the capture is always **stretched to fill the whole
 frame**. There is no canvas or preview to arrange.
 
+**Multi-monitor clips** (on by default): every clip and recording also saves each of your other
+monitors as its own file, for example `Clip 2026-11-21 20-15-03 (Display 2).mp4`, with the same audio
+tracks. That way you also catch what was happening on your second screen, such as Discord reactions.
+
 Encoding uses your GPU when possible (NVIDIA NVENC, AMD AMF, Intel Quick Sync), and falls back to x264 on the CPU.
 
 ## Audio tracks
 * **Mic + desktop audio**: Track 1 = Mic + Desktop, Track 2 = Desktop, Track 3 = Mic
-* **Separate track per app**: Track 1 = Mic + Desktop (everything), Track 2 = Mic,
-  Track 3+ = one per app you pick (up to 6), e.g. your game, Discord, Spotify.
+* **Separate track per app** (default): Track 1 = Mic + Desktop (everything), Track 2 = Mic,
+  then **Discord** and **Spotify** (always looked for; you can change or add up to 4 apps), then
+  **automatic tracks** (3 by default). When any other app starts playing sound (a game you just
+  launched, a browser), it gets the next free automatic track. When it closes, that track is freed.
+  You never have to pick the game by hand.
   Apps are matched by their .exe, including their child processes, and are picked up again when
   restarted.
 

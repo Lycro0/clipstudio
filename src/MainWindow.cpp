@@ -26,6 +26,7 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QResizeEvent>
 #include <QScrollArea>
 #include <QSpinBox>
 #include <QStyle>
@@ -33,6 +34,8 @@
 #include <QUrl>
 #include <QVBoxLayout>
 
+#include <algorithm>
+#include <cmath>
 
 /* "Discord.exe" -> "Discord" */
 static QString FriendlyAppName(const QString &exe)
@@ -60,6 +63,7 @@ MainWindow::MainWindow(Engine *eng, QWidget *parent) : QMainWindow(parent), engi
 	resize(1100, 720);
 
 	settings.load();
+	baseFontPt = QApplication::font().pointSizeF() > 0 ? QApplication::font().pointSizeF() : 9.0;
 
 	tabs = new QTabWidget;
 	editor = new ClipEditor;
@@ -105,10 +109,13 @@ MainWindow::MainWindow(Engine *eng, QWidget *parent) : QMainWindow(parent), engi
 		UpdateStatus();
 	});
 	connect(engine, &Engine::BufferStateChanged, this, [this](bool) { UpdateStatus(); });
+	connect(engine, &Engine::AutoTracksChanged, this, &MainWindow::UpdateAutoTracks);
 	connect(engine, &Engine::ErrorOccurred, this, [this](const QString &m) {
 		Log(tr("Error: %1").arg(m));
 		Notify(tr("ClipStudio"), m);
 	});
+
+	ApplyScale();
 }
 
 /* ------------------------------------------------------------------------ */
@@ -121,8 +128,6 @@ QWidget *MainWindow::BuildHomeTab()
 	auto *statusRow = new QHBoxLayout;
 	bufferStatus = new QLabel;
 	recStatus = new QLabel;
-	for (QLabel *lab : {bufferStatus, recStatus})
-		lab->setStyleSheet("font-size: 18px; font-weight: bold; padding: 8px;");
 	statusRow->addWidget(bufferStatus);
 	statusRow->addWidget(recStatus);
 	statusRow->addStretch(1);
@@ -133,7 +138,7 @@ QWidget *MainWindow::BuildHomeTab()
 	recBtn = new QPushButton(tr("Start Recording"));
 	auto *folderBtn = new QPushButton(tr("Open clips folder"));
 	for (QPushButton *b : {clipBtn, recBtn, folderBtn}) {
-		b->setMinimumHeight(48);
+		bigButtons << b;
 		btnRow->addWidget(b);
 	}
 	l->addLayout(btnRow);
@@ -195,6 +200,10 @@ QWidget *MainWindow::BuildSettingsTab()
 	vf->addRow(tr("Monitor"), monitor);
 	cursor = new QCheckBox(tr("Capture mouse cursor"));
 	vf->addRow("", cursor);
+	allMonitors = new QCheckBox(tr("Also clip my other monitors (one extra file per monitor, same audio)"));
+	allMonitors->setToolTip(tr("Every clip and recording also saves each other monitor as its own file, e.g.\n"
+				   "\"Clip ... (Display 2).mp4\", so you catch Discord reactions on your second screen."));
+	vf->addRow("", allMonitors);
 	vf->addRow("", new QLabel(tr("The capture is always stretched to fill the whole video — no canvas to arrange.")));
 	l->addWidget(vid);
 
@@ -235,8 +244,19 @@ QWidget *MainWindow::BuildSettingsTab()
 		});
 		appRows.append(r);
 	}
-	auto *refreshApps = new QPushButton(tr("Refresh app list (open Discord/Spotify/your game first)"));
+	auto *refreshApps = new QPushButton(tr("Refresh app list"));
 	ag->addWidget(refreshApps, kMaxAppTracks, 0, 1, 3);
+
+	autoTracks = new QSpinBox;
+	autoTracks->setRange(0, kMaxAutoTracks);
+	auto *autoRow = new QHBoxLayout;
+	autoRow->addWidget(new QLabel(tr("Automatic tracks for any other app playing sound (games, browsers...):")));
+	autoRow->addWidget(autoTracks);
+	autoRow->addStretch(1);
+	ag->addLayout(autoRow, kMaxAppTracks + 1, 0, 1, 3);
+	autoStatus = new QLabel;
+	autoStatus->setWordWrap(true);
+	ag->addWidget(autoStatus, kMaxAppTracks + 2, 0, 1, 3);
 	af->addRow(appsGroup);
 	l->addWidget(aud);
 
@@ -279,7 +299,7 @@ QWidget *MainWindow::BuildSettingsTab()
 	l->addWidget(out);
 
 	auto *apply = new QPushButton(tr("Apply"));
-	apply->setMinimumHeight(40);
+	bigButtons << apply;
 	l->addWidget(apply);
 	l->addStretch(1);
 
@@ -287,7 +307,8 @@ QWidget *MainWindow::BuildSettingsTab()
 	connect(audioPerApp, &QRadioButton::toggled, this, [this, trackHelp]() {
 		UpdateModeVisibility();
 		trackHelp->setText(audioPerApp->isChecked()
-					   ? tr("Track 1: Mic + Desktop (everything) · Track 2: Mic · Tracks 3+: the apps below")
+					   ? tr("Track 1: Mic + Desktop (everything) · Track 2: Mic · then the apps below, then "
+						"automatic tracks that attach to anything else that starts playing sound")
 					   : tr("Track 1: Mic + Desktop · Track 2: Desktop · Track 3: Mic"));
 	});
 	connect(refreshGames, &QPushButton::clicked, this, &MainWindow::RefreshAppLists);
@@ -381,6 +402,8 @@ void MainWindow::LoadSettingsIntoUi()
 	modeGame->setChecked(settings.captureMode == CaptureMode::Game);
 	modeDesktop->setChecked(settings.captureMode == CaptureMode::Desktop);
 	cursor->setChecked(settings.captureCursor);
+	allMonitors->setChecked(settings.clipAllMonitors);
+	autoTracks->setValue(settings.autoTracks);
 	audioSimple->setChecked(settings.audioMode == AudioMode::Simple);
 	audioPerApp->setChecked(settings.audioMode == AudioMode::PerApp);
 
@@ -417,6 +440,8 @@ AppSettings MainWindow::SettingsFromUi() const
 	s.gameExe = gameWindow->currentData().toString();
 	s.monitorId = monitor->currentData().toString();
 	s.captureCursor = cursor->isChecked();
+	s.clipAllMonitors = allMonitors->isChecked();
+	s.autoTracks = autoTracks->value();
 	s.audioMode = audioPerApp->isChecked() ? AudioMode::PerApp : AudioMode::Simple;
 	s.micDevice = micDev->currentData().toString();
 	s.desktopDevice = deskDev->currentData().toString();
@@ -477,6 +502,7 @@ void MainWindow::ApplySettings()
 	ApplyHotkeys();
 	editor->SetFolder(settings.outputDir);
 	editor->SetAudioBitrate(settings.audioBitrate);
+	UpdateAutoTracks();
 	Log(tr("Settings applied."));
 	UpdateStatus();
 }
@@ -486,10 +512,13 @@ void MainWindow::UpdateStatus()
 	bool buf = engine->IsBufferActive();
 	bool rec = engine->IsRecording();
 	bufferStatus->setText(buf ? tr("● Clip buffer ON (%1 s)").arg(settings.clipSeconds) : tr("○ Clip buffer OFF"));
-	bufferStatus->setStyleSheet(QString("font-size: 18px; font-weight: bold; padding: 8px; color: %1;")
+	int px = (int)(18 * scale);
+	bufferStatus->setStyleSheet(QString("font-size: %1px; font-weight: bold; padding: 8px; color: %2;")
+					    .arg(px)
 					    .arg(buf ? "#2e9d4f" : "#999"));
 	recStatus->setText(rec ? tr("● RECORDING") : tr("○ Not recording"));
-	recStatus->setStyleSheet(QString("font-size: 18px; font-weight: bold; padding: 8px; color: %1;")
+	recStatus->setStyleSheet(QString("font-size: %1px; font-weight: bold; padding: 8px; color: %2;")
+					 .arg(px)
 					 .arg(rec ? "#d23a3a" : "#999"));
 	recBtn->setText(rec ? tr("Stop Recording") : tr("Start Recording"));
 	trayRecord->setText(recBtn->text());
@@ -509,6 +538,42 @@ void MainWindow::Notify(const QString &title, const QString &msg)
 {
 	if (tray && QSystemTrayIcon::supportsMessages())
 		tray->showMessage(title, msg, QSystemTrayIcon::Information, 2500);
+}
+
+void MainWindow::UpdateAutoTracks()
+{
+	if (settings.audioMode != AudioMode::PerApp || settings.autoTracks == 0) {
+		autoStatus->clear();
+		return;
+	}
+	QStringList apps = engine->AutoTrackApps();
+	int first = 3 + (int)settings.appTracks.size();
+	QStringList parts;
+	for (int i = 0; i < apps.size(); i++)
+		parts << tr("Track %1: %2").arg(first + i).arg(apps[i].isEmpty() ? tr("waiting for an app") : apps[i]);
+	autoStatus->setText(tr("Right now: ") + parts.join(" · "));
+}
+
+void MainWindow::resizeEvent(QResizeEvent *event)
+{
+	QMainWindow::resizeEvent(event);
+	double s2 = std::clamp(std::min(width() / 1100.0, height() / 720.0), 0.85, 2.2);
+	if (std::abs(s2 - scale) > 0.03) {
+		scale = s2;
+		ApplyScale();
+	}
+}
+
+/* Text, buttons and controls grow/shrink with the window. */
+void MainWindow::ApplyScale()
+{
+	QFont f = QApplication::font();
+	f.setPointSizeF(baseFontPt * scale);
+	tabs->setFont(f);
+	for (QPushButton *b : bigButtons)
+		b->setMinimumHeight((int)(44 * scale));
+	editor->SetScale(scale);
+	UpdateStatus();
 }
 
 void MainWindow::ToggleVisible()

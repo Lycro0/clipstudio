@@ -4,6 +4,8 @@
 #include <QStandardPaths>
 #include <QDir>
 
+#include <algorithm>
+
 static QSettings &store()
 {
 	static QSettings s(QSettings::IniFormat, QSettings::UserScope, "ClipStudio", "ClipStudio");
@@ -34,7 +36,10 @@ void AppSettings::load()
 	monitorId = s.value("video/monitorId").toString();
 	captureCursor = s.value("video/cursor", d.captureCursor).toBool();
 
-	audioMode = s.value("audio/mode", "simple").toString() == "perapp" ? AudioMode::PerApp : AudioMode::Simple;
+	clipAllMonitors = s.value("video/allMonitors", d.clipAllMonitors).toBool();
+
+	audioMode = s.value("audio/mode", "perapp").toString() == "perapp" ? AudioMode::PerApp : AudioMode::Simple;
+	autoTracks = std::clamp(s.value("audio/autoTracks", d.autoTracks).toInt(), 0, kMaxAutoTracks);
 	micDevice = s.value("audio/mic", d.micDevice).toString();
 	desktopDevice = s.value("audio/desktop", d.desktopDevice).toString();
 	appTracks.clear();
@@ -44,6 +49,21 @@ void AppSettings::load()
 		appTracks.append({s.value("name").toString(), s.value("exe").toString()});
 	}
 	s.endArray();
+
+	/* Settings from before version 2 (or a first run): switch to per-app tracks and make sure
+	 * Discord and Spotify always have their own track. */
+	if (s.value("general/settingsVersion", 0).toInt() < 2) {
+		audioMode = AudioMode::PerApp;
+		for (const char *exe : {"Spotify.exe", "Discord.exe"}) {
+			bool have = std::any_of(appTracks.begin(), appTracks.end(), [&](const AppAudioTrack &t) {
+				return t.exe.compare(exe, Qt::CaseInsensitive) == 0;
+			});
+			if (!have)
+				appTracks.prepend({QString(exe).chopped(4), exe});
+		}
+		while (appTracks.size() > kMaxAppTracks)
+			appTracks.removeLast();
+	}
 
 	startMinimized = s.value("general/startMinimized", false).toBool();
 }
@@ -65,6 +85,8 @@ void AppSettings::save() const
 	s.setValue("video/gameExe", gameExe);
 	s.setValue("video/monitorId", monitorId);
 	s.setValue("video/cursor", captureCursor);
+	s.setValue("video/allMonitors", clipAllMonitors);
+	s.setValue("audio/autoTracks", autoTracks);
 	s.setValue("audio/mode", audioMode == AudioMode::PerApp ? "perapp" : "simple");
 	s.setValue("audio/mic", micDevice);
 	s.setValue("audio/desktop", desktopDevice);
@@ -76,5 +98,6 @@ void AppSettings::save() const
 	}
 	s.endArray();
 	s.setValue("general/startMinimized", startMinimized);
+	s.setValue("general/settingsVersion", 2);
 	s.sync();
 }
