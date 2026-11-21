@@ -31,8 +31,8 @@ frame**. There is no canvas or preview to arrange.
 monitors as its own file, for example `Clip 2026-11-21 20-15-03 (Display 2).mp4`, with the same audio
 tracks. That way you also catch what was happening on your second screen, such as Discord reactions.
 
-Other monitors are recorded at 30 FPS and a third of the bitrate by default to keep the load low.
-Change this under **Settings → What to capture → Other monitors**.
+Other monitors are recorded at 720p, 30 FPS and a third of the bitrate by default to keep the
+load low. Change this under **Settings → What to capture → Other monitors**.
 
 **Resolution** (Settings → Output) defaults to 1080p. Higher-resolution screens are scaled down,
 which saves a lot of GPU, CPU and memory. Choose 1440p or Native if you want more detail.
@@ -41,13 +41,20 @@ Encoding uses your GPU when possible (NVIDIA NVENC, AMD AMF, Intel Quick Sync), 
 
 ## Audio tracks
 * **Mic + desktop audio**: Track 1 = Mic + Desktop, Track 2 = Desktop, Track 3 = Mic
-* **Separate track per app** (default): Track 1 = Mic + Desktop (everything), Track 2 = Mic,
-  then **Discord** and **Spotify** (always looked for; you can change or add up to 4 apps), then
-  **automatic tracks** (3 by default). When any other app starts playing sound (a game you just
-  launched, a browser), it gets the next free automatic track. When it closes, that track is freed.
-  You never have to pick the game by hand.
-  Apps are matched by their .exe, including their child processes, and are picked up again when
-  restarted.
+* **Separate track per app** (default):
+  | Track | Contains |
+  |-------|----------|
+  | 1 | Everything (desktop audio + mic) |
+  | 2 | Your mic |
+  | 3 | Discord (any edition: Discord, Canary, PTB) |
+  | 4 | Spotify |
+  | 5 | The game you're playing (detected automatically) |
+  | 6+ | Automatic tracks (5 by default, up to 8) |
+
+  Each automatic track is claimed by the next app that starts playing sound (Chrome, a second
+  game...). When an app closes, its track is freed. If every automatic track is busy, the one
+  whose app has been quiet the longest (20 s+) is given to the new app, so a newly opened app is
+  never left without a track. Apps are captured together with their child processes.
 
 Tracks are named inside the file, so Premiere Pro, DaVinci Resolve and other editors show
 "Discord", "Spotify" and so on as separate audio tracks.
