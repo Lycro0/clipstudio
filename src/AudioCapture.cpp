@@ -45,6 +45,21 @@ void AudioCapture::Stop()
 		thread.join();
 }
 
+void AudioCapture::SetTarget(const std::wstring &exe)
+{
+	std::lock_guard<std::mutex> lock(targetMutex);
+	if (target == exe)
+		return;
+	target = exe;
+	targetChanged = true;
+}
+
+std::wstring AudioCapture::Target()
+{
+	std::lock_guard<std::mutex> lock(targetMutex);
+	return target;
+}
+
 void AudioCapture::Push(const float *src, size_t frames)
 {
 	std::lock_guard<std::mutex> lock(m);
@@ -238,14 +253,17 @@ void AudioCapture::Run()
 		ComPtr<IAudioClient> client;
 		HANDLE process = nullptr;
 
+		targetChanged = false;
+		std::wstring want = Target();
+
 		if (kind == Kind::Application) {
-			DWORD pid = FindRootProcess(target);
+			DWORD pid = want.empty() ? 0 : FindRootProcess(want);
 			if (pid) {
 				process = OpenProcess(SYNCHRONIZE, FALSE, pid);
 				client = ActivateProcessLoopback(pid);
 			}
 		} else {
-			client = ActivateDevice(kind == Kind::Input, target);
+			client = ActivateDevice(kind == Kind::Input, want);
 		}
 
 		bool ok = false;
@@ -268,6 +286,8 @@ void AudioCapture::Run()
 				WaitForSingleObject(event, 20);
 				if (process && WaitForSingleObject(process, 0) == WAIT_OBJECT_0)
 					break; // app exited; re-attach when it comes back
+				if (targetChanged)
+					break; // switched to another app
 
 				UINT32 packet = 0;
 				bool failed = false;
@@ -298,7 +318,7 @@ void AudioCapture::Run()
 			CloseHandle(process);
 
 		// Retry after a short delay (app not running yet, device unplugged, ...).
-		for (int i = 0; i < 20 && running; i++)
+		for (int i = 0; i < 20 && running && !targetChanged; i++)
 			Sleep(100);
 	}
 
