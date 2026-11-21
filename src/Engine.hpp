@@ -72,6 +72,8 @@ private:
 		HMONITOR monitor = nullptr; // extra pipelines: the monitor to capture
 		QString label;              // file name suffix, e.g. "Display 2"
 		int width = 0, height = 0;
+		int fps = 60;
+		int bitrate = 20000; // kbps
 		AVCodecContext *enc = nullptr;
 		std::thread thread;
 		std::atomic<bool> forceKeyframe{false};

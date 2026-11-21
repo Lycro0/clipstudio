@@ -204,6 +204,12 @@ QWidget *MainWindow::BuildSettingsTab()
 	allMonitors->setToolTip(tr("Every clip and recording also saves each other monitor as its own file, e.g.\n"
 				   "\"Clip ... (Display 2).mp4\", so you catch Discord reactions on your second screen."));
 	vf->addRow("", allMonitors);
+	extraFpsBox = new QComboBox;
+	for (int f : {15, 30, 60})
+		extraFpsBox->addItem(tr("%1 FPS").arg(f), f);
+	extraFpsBox->setToolTip(tr("Lower = less GPU/CPU. The main capture keeps its own FPS."));
+	vf->addRow(tr("Other monitors"), extraFpsBox);
+	connect(allMonitors, &QCheckBox::toggled, extraFpsBox, &QWidget::setEnabled);
 	vf->addRow("", new QLabel(tr("The capture is always stretched to fill the whole video — no canvas to arrange.")));
 	l->addWidget(vid);
 
@@ -282,6 +288,13 @@ QWidget *MainWindow::BuildSettingsTab()
 	for (int f : {30, 60, 120, 144})
 		fpsBox->addItem(QString::number(f), f);
 	of->addRow(tr("FPS"), fpsBox);
+	resBox = new QComboBox;
+	resBox->addItem(tr("720p"), 720);
+	resBox->addItem(tr("1080p (recommended)"), 1080);
+	resBox->addItem(tr("1440p"), 1440);
+	resBox->addItem(tr("Native (your monitor's resolution)"), 0);
+	resBox->setToolTip(tr("Lower resolution = much less GPU, CPU and memory use."));
+	of->addRow(tr("Resolution"), resBox);
 	encoder = new QComboBox;
 	of->addRow(tr("Video encoder"), encoder);
 	vBitrate = new QSpinBox;
@@ -403,6 +416,12 @@ void MainWindow::LoadSettingsIntoUi()
 	modeDesktop->setChecked(settings.captureMode == CaptureMode::Desktop);
 	cursor->setChecked(settings.captureCursor);
 	allMonitors->setChecked(settings.clipAllMonitors);
+	extraFpsBox->setCurrentIndex(std::max(0, extraFpsBox->findData(settings.extraFps)));
+	extraFpsBox->setEnabled(settings.clipAllMonitors);
+	{
+		int idx = resBox->findData(settings.outputHeight);
+		resBox->setCurrentIndex(idx >= 0 ? idx : 1);
+	}
 	autoTracks->setValue(settings.autoTracks);
 	audioSimple->setChecked(settings.audioMode == AudioMode::Simple);
 	audioPerApp->setChecked(settings.audioMode == AudioMode::PerApp);
@@ -441,6 +460,8 @@ AppSettings MainWindow::SettingsFromUi() const
 	s.monitorId = monitor->currentData().toString();
 	s.captureCursor = cursor->isChecked();
 	s.clipAllMonitors = allMonitors->isChecked();
+	s.extraFps = extraFpsBox->currentData().toInt();
+	s.outputHeight = resBox->currentData().toInt();
 	s.autoTracks = autoTracks->value();
 	s.audioMode = audioPerApp->isChecked() ? AudioMode::PerApp : AudioMode::Simple;
 	s.micDevice = micDev->currentData().toString();

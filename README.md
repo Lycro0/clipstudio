@@ -31,6 +31,12 @@ frame**. There is no canvas or preview to arrange.
 monitors as its own file, for example `Clip 2026-11-21 20-15-03 (Display 2).mp4`, with the same audio
 tracks. That way you also catch what was happening on your second screen, such as Discord reactions.
 
+Other monitors are recorded at 30 FPS and a third of the bitrate by default to keep the load low.
+Change this under **Settings → What to capture → Other monitors**.
+
+**Resolution** (Settings → Output) defaults to 1080p. Higher-resolution screens are scaled down,
+which saves a lot of GPU, CPU and memory. Choose 1440p or Native if you want more detail.
+
 Encoding uses your GPU when possible (NVIDIA NVENC, AMD AMF, Intel Quick Sync), and falls back to x264 on the CPU.
 
 ## Audio tracks

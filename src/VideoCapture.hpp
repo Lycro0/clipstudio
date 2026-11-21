@@ -23,7 +23,11 @@ public:
 	bool StartMonitor(HMONITOR monitor, bool cursor);
 	void Stop();
 
-	/* Copies the newest frame into `out` if it is newer than out.serial. */
+	/* Only copy frames off the GPU at up to this rate (the monitor may refresh at 144+ Hz). */
+	void SetMaxFps(int fps);
+
+	/* Hands the newest frame to `out` (buffers are swapped, not copied) if it is newer than
+	 * out.serial. */
 	bool GetLatest(VideoFrame &out);
 
 	HWND Window() const;
