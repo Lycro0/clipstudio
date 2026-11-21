@@ -130,22 +130,54 @@ NameValueList Engine::AvailableEncoders()
 	return cached;
 }
 
+QStringList Engine::AutoTrackApps()
+{
+	std::lock_guard<std::mutex> lock(autoMutex);
+	QStringList out;
+	for (const AutoSlot &a : autoSlots)
+		out << a.exe;
+	return out;
+}
+
+/* "Discord.exe" -> "Discord" */
+static QString FriendlyName(const QString &exe)
+{
+	QString n = exe;
+	if (n.endsWith(".exe", Qt::CaseInsensitive))
+		n.chop(4);
+	if (!n.isEmpty())
+		n[0] = n[0].toUpper();
+	return n;
+}
+
+QStringList Engine::CurrentTrackNames()
+{
+	QStringList names = fixedTrackNames;
+	std::lock_guard<std::mutex> lock(autoMutex);
+	for (size_t i = 0; i < autoSlots.size(); i++)
+		names << (autoSlots[i].exe.isEmpty() ? QString("Other app %1").arg(i + 1) : FriendlyName(autoSlots[i].exe));
+	return names;
+}
+
 bool Engine::OpenEncoders(QString &error)
 {
-	if (!s.encoder.isEmpty())
-		venc = CreateVideoEncoder(s.encoder.toUtf8().constData(), outW, outH, s.fps, s.videoBitrate);
-	for (const char *name : kEncoderOrder) {
-		if (venc)
-			break;
-		venc = CreateVideoEncoder(name, outW, outH, s.fps, s.videoBitrate);
-	}
-	if (!venc) {
-		error = tr("No working video encoder found.");
-		return false;
+	for (auto &p : pipes) {
+		if (!s.encoder.isEmpty())
+			p->enc = CreateVideoEncoder(s.encoder.toUtf8().constData(), p->width, p->height, s.fps,
+						    s.videoBitrate);
+		for (const char *name : kEncoderOrder) {
+			if (p->enc)
+				break;
+			p->enc = CreateVideoEncoder(name, p->width, p->height, s.fps, s.videoBitrate);
+		}
+		if (!p->enc) {
+			error = tr("No working video encoder found.");
+			return false;
+		}
 	}
 
 	const AVCodec *aac = avcodec_find_encoder(AV_CODEC_ID_AAC);
-	for (int t = 0; t < trackNames.size(); t++) {
+	for (size_t t = 0; t < trackSources.size(); t++) {
 		AVCodecContext *c = avcodec_alloc_context3(aac);
 		c->sample_fmt = AV_SAMPLE_FMT_FLTP;
 		c->sample_rate = AudioCapture::kRate;
@@ -166,7 +198,8 @@ bool Engine::OpenEncoders(QString &error)
 
 void Engine::CloseEncoders()
 {
-	avcodec_free_context(&venc);
+	for (auto &p : pipes)
+		avcodec_free_context(&p->enc);
 	for (AVCodecContext *&c : aenc)
 		avcodec_free_context(&c);
 	aenc.clear();
@@ -174,6 +207,19 @@ void Engine::CloseEncoders()
 
 /* ------------------------------------------------------------------------ */
 /* Lifecycle                                                                */
+
+static std::vector<HMONITOR> AllMonitors()
+{
+	std::vector<HMONITOR> list;
+	EnumDisplayMonitors(
+		nullptr, nullptr,
+		[](HMONITOR mon, HDC, LPRECT, LPARAM param) -> BOOL {
+			reinterpret_cast<std::vector<HMONITOR> *>(param)->push_back(mon);
+			return TRUE;
+		},
+		reinterpret_cast<LPARAM>(&list));
+	return list;
+}
 
 bool Engine::Apply(const AppSettings &settings, QString &error)
 {
@@ -187,24 +233,44 @@ bool Engine::Apply(const AppSettings &settings, QString &error)
 	s.save();
 	QDir().mkpath(s.outputDir);
 
-	HMONITOR mon = WinUtil::MonitorById(s.captureMode == CaptureMode::Desktop ? s.monitorId : QString());
-	QSize size = WinUtil::MonitorSize(mon);
-	outW = std::max(2, size.width() & ~1);
-	outH = std::max(2, size.height() & ~1);
+	/* Video pipelines: main capture + (optionally) every other monitor. */
+	pipes.clear();
+	HMONITOR mainMon = WinUtil::MonitorById(s.captureMode == CaptureMode::Desktop ? s.monitorId : QString());
+	auto addPipe = [&](bool isMain, HMONITOR mon, const QString &label) {
+		auto p = std::make_unique<VideoPipe>();
+		p->main = isMain;
+		p->monitor = mon;
+		p->label = label;
+		QSize size = WinUtil::MonitorSize(mon);
+		p->width = std::max(2, size.width() & ~1);
+		p->height = std::max(2, size.height() & ~1);
+		pipes.push_back(std::move(p));
+	};
+	addPipe(true, mainMon, QString());
+	if (s.clipAllMonitors) {
+		std::vector<HMONITOR> mons = AllMonitors();
+		for (size_t i = 0; i < mons.size(); i++)
+			if (mons[i] != mainMon)
+				addPipe(false, mons[i], QString("Display %1").arg(i + 1));
+	}
 
 	/* Audio sources and track layout. */
 	sources.clear();
 	trackSources.clear();
-	trackNames.clear();
+	fixedTrackNames.clear();
+	{
+		std::lock_guard<std::mutex> lock(autoMutex);
+		autoSlots.clear();
+	}
 	sources.push_back(std::make_unique<AudioCapture>(AudioCapture::Kind::Loopback, s.desktopDevice.toStdWString()));
 	sources.push_back(std::make_unique<AudioCapture>(AudioCapture::Kind::Input, s.micDevice.toStdWString()));
 	const int desktop = 0, mic = 1;
 
 	if (s.audioMode == AudioMode::Simple) {
-		trackNames = {"Mic + Desktop", "Desktop", "Mic"};
+		fixedTrackNames = {"Mic + Desktop", "Desktop", "Mic"};
 		trackSources = {{desktop, mic}, {desktop}, {mic}};
 	} else {
-		trackNames = {"Mic + Desktop", "Mic"};
+		fixedTrackNames = {"Mic + Desktop", "Mic"};
 		trackSources = {{desktop, mic}, {mic}};
 		for (int i = 0; i < s.appTracks.size() && i < kMaxAppTracks; i++) {
 			const AppAudioTrack &app = s.appTracks[i];
@@ -212,13 +278,20 @@ bool Engine::Apply(const AppSettings &settings, QString &error)
 				continue;
 			sources.push_back(
 				std::make_unique<AudioCapture>(AudioCapture::Kind::Application, app.exe.toStdWString()));
-			trackNames << (app.name.isEmpty() ? app.exe : app.name);
+			fixedTrackNames << (app.name.isEmpty() ? FriendlyName(app.exe) : app.name);
+			trackSources.push_back({(int)sources.size() - 1});
+		}
+		std::lock_guard<std::mutex> lock(autoMutex);
+		for (int i = 0; i < s.autoTracks && i < kMaxAutoTracks; i++) {
+			sources.push_back(std::make_unique<AudioCapture>(AudioCapture::Kind::Application, L""));
+			autoSlots.push_back({(int)sources.size() - 1, QString()});
 			trackSources.push_back({(int)sources.size() - 1});
 		}
 	}
 
 	if (!OpenEncoders(error)) {
 		CloseEncoders();
+		pipes.clear();
 		return false;
 	}
 
@@ -227,9 +300,13 @@ bool Engine::Apply(const AppSettings &settings, QString &error)
 
 	running = true;
 	startQpc = Qpc();
-	videoThread = std::thread([this]() { VideoThread(); });
+	for (size_t i = 0; i < pipes.size(); i++)
+		pipes[i]->thread = std::thread([this, i]() { VideoThread((int)i); });
 	audioThread = std::thread([this]() { AudioThread(); });
+	if (!autoSlots.empty())
+		watchThread = std::thread([this]() { WatchThread(); });
 	emit BufferStateChanged(true);
+	emit AutoTracksChanged();
 	return true;
 }
 
@@ -238,10 +315,13 @@ void Engine::StopThreads()
 	if (recording)
 		ToggleRecording();
 	running = false;
-	if (videoThread.joinable())
-		videoThread.join();
+	for (auto &p : pipes)
+		if (p->thread.joinable())
+			p->thread.join();
 	if (audioThread.joinable())
 		audioThread.join();
+	if (watchThread.joinable())
+		watchThread.join();
 	for (auto &src : sources)
 		src->Stop();
 	sources.clear();
@@ -258,7 +338,63 @@ void Engine::StopThreads()
 void Engine::Shutdown()
 {
 	StopThreads();
+	pipes.clear();
 	emit BufferStateChanged(false);
+}
+
+/* ------------------------------------------------------------------------ */
+/* Auto app tracks                                                          */
+
+void Engine::WatchThread()
+{
+	CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+
+	QStringList fixed = {"ClipStudio.exe"};
+	for (const AppAudioTrack &t : s.appTracks)
+		fixed << t.exe;
+	auto isFixed = [&](const QString &exe) { return fixed.contains(exe, Qt::CaseInsensitive); };
+
+	while (running) {
+		bool changed = false;
+		QStringList playing = WinUtil::AppsPlayingAudio();
+		{
+			std::lock_guard<std::mutex> lock(autoMutex);
+
+			// Free tracks whose app has closed.
+			for (AutoSlot &a : autoSlots) {
+				if (!a.exe.isEmpty() && !WinUtil::IsProcessRunning(a.exe)) {
+					a.exe.clear();
+					sources[(size_t)a.source]->SetTarget(L"");
+					changed = true;
+				}
+			}
+
+			// Give every new app that plays sound its own track (while tracks are free).
+			for (const QString &exe : playing) {
+				if (isFixed(exe))
+					continue;
+				bool taken = std::any_of(autoSlots.begin(), autoSlots.end(), [&](const AutoSlot &a) {
+					return a.exe.compare(exe, Qt::CaseInsensitive) == 0;
+				});
+				if (taken)
+					continue;
+				for (AutoSlot &a : autoSlots) {
+					if (a.exe.isEmpty()) {
+						a.exe = exe;
+						sources[(size_t)a.source]->SetTarget(exe.toStdWString());
+						changed = true;
+						break;
+					}
+				}
+			}
+		}
+		if (changed)
+			QMetaObject::invokeMethod(this, "AutoTracksChanged", Qt::QueuedConnection);
+
+		for (int i = 0; i < 20 && running; i++)
+			Sleep(100);
+	}
+	CoUninitialize();
 }
 
 /* ------------------------------------------------------------------------ */
@@ -268,22 +404,30 @@ void Engine::OnPacket(int stream, AVPacket *pkt, AVRational tb)
 {
 	int64_t us = av_rescale_q(pkt->pts, tb, AV_TIME_BASE_Q);
 	bool key = (pkt->flags & AV_PKT_FLAG_KEY) != 0;
+	const int V = (int)pipes.size();
 
 	{
 		std::lock_guard<std::mutex> lock(recMutex);
-		if (recMuxer) {
-			if (recWaitingForKey && stream == 0 && key) {
-				recWaitingForKey = false;
-				recStartUs = us;
+		for (size_t k = 0; k < recs.size(); k++) {
+			Recording &r = recs[k];
+			if (stream < V) {
+				if (stream != (int)k)
+					continue;
+				if (r.waitingForKey && key) {
+					r.waitingForKey = false;
+					r.startUs = us;
+				}
+				if (!r.waitingForKey)
+					r.muxer->Write(0, pkt, r.startUs);
+			} else if (!r.waitingForKey && us >= r.startUs) {
+				r.muxer->Write(1 + stream - V, pkt, r.startUs);
 			}
-			if (!recWaitingForKey && us >= recStartUs)
-				recMuxer->Write(stream, pkt, recStartUs);
 		}
 	}
 
 	std::lock_guard<std::mutex> lock(storeMutex);
 	store.push_back({stream, av_packet_clone(pkt), us, key});
-	// Keep a little more than the clip length so we can always start on a keyframe.
+	// Keep a little more than the clip length so every clip can start on a keyframe.
 	int64_t keepUs = (int64_t)(s.clipSeconds + 4) * 1000000;
 	while (!store.empty() && store.front().us < us - keepUs) {
 		av_packet_free(&store.front().pkt);
@@ -291,14 +435,31 @@ void Engine::OnPacket(int stream, AVPacket *pkt, AVRational tb)
 	}
 }
 
-QString Engine::NewFilePath(const QString &prefix) const
+QString Engine::NewFilePath(const QString &base, const QString &suffix) const
 {
-	QString base = QString("%1 %2").arg(prefix, QDateTime::currentDateTime().toString("yyyy-MM-dd hh-mm-ss"));
 	QDir dir(s.outputDir);
-	QString path = dir.filePath(base + "." + s.container);
+	QString path = dir.filePath(base + suffix + "." + s.container);
 	for (int i = 2; QFile::exists(path); i++)
-		path = dir.filePath(QString("%1 (%2).%3").arg(base).arg(i).arg(s.container));
+		path = dir.filePath(QString("%1%2 (%3).%4").arg(base, suffix).arg(i).arg(s.container));
 	return path;
+}
+
+bool Engine::WriteFile(const QString &path, int pipe, const std::vector<Stored> &packets, int64_t startUs,
+		       const QStringList &names, bool fastStart, QString &error)
+{
+	const int V = (int)pipes.size();
+	Muxer mux;
+	if (!mux.Open(path, pipes[(size_t)pipe]->enc, aenc, names, fastStart, error))
+		return false;
+	for (const Stored &st : packets) {
+		if (st.us < startUs)
+			continue;
+		if (st.stream == pipe)
+			mux.Write(0, st.pkt, startUs);
+		else if (st.stream >= V)
+			mux.Write(1 + st.stream - V, st.pkt, startUs);
+	}
+	return mux.Close();
 }
 
 void Engine::SaveClip()
@@ -309,7 +470,7 @@ void Engine::SaveClip()
 	}
 
 	std::vector<Stored> copy;
-	int64_t startUs = 0;
+	std::vector<int64_t> starts(pipes.size(), INT64_MIN);
 	{
 		std::lock_guard<std::mutex> lock(storeMutex);
 		int64_t newest = INT64_MIN;
@@ -321,62 +482,67 @@ void Engine::SaveClip()
 			return;
 		}
 		int64_t cutoff = newest - (int64_t)s.clipSeconds * 1000000;
-		bool found = false;
-		for (const Stored &st : store) {
-			if (st.stream == 0 && st.key && st.us >= cutoff) {
-				startUs = st.us;
-				found = true;
-				break;
-			}
-		}
-		if (!found) {
-			for (const Stored &st : store)
-				if (st.stream == 0 && st.key) {
-					startUs = st.us;
-					found = true;
+		for (size_t k = 0; k < pipes.size(); k++) {
+			int64_t first = INT64_MIN;
+			for (const Stored &st : store) {
+				if (st.stream != (int)k || !st.key)
+					continue;
+				if (first == INT64_MIN)
+					first = st.us;
+				if (st.us >= cutoff) {
+					starts[k] = st.us;
 					break;
 				}
+			}
+			if (starts[k] == INT64_MIN)
+				starts[k] = first;
 		}
-		if (!found) {
+		int64_t earliest = INT64_MAX;
+		for (int64_t v : starts)
+			if (v != INT64_MIN)
+				earliest = std::min(earliest, v);
+		if (earliest == INT64_MAX) {
 			emit ErrorOccurred(tr("Nothing captured yet."));
 			return;
 		}
 		for (const Stored &st : store)
-			if (st.us >= startUs)
+			if (st.us >= earliest)
 				copy.push_back({st.stream, av_packet_clone(st.pkt), st.us, st.key});
 	}
 
-	QString path = NewFilePath("Clip");
-	Muxer mux;
-	QString err;
-	bool ok = mux.Open(path, venc, aenc, trackNames, true, err);
-	if (ok) {
-		for (Stored &st : copy)
-			mux.Write(st.stream, st.pkt, startUs);
-		ok = mux.Close();
+	QStringList names = CurrentTrackNames();
+	QString base = "Clip " + QDateTime::currentDateTime().toString("yyyy-MM-dd hh-mm-ss");
+	for (size_t k = 0; k < pipes.size(); k++) {
+		if (starts[k] == INT64_MIN)
+			continue;
+		QString suffix = pipes[k]->label.isEmpty() ? QString() : QString(" (%1)").arg(pipes[k]->label);
+		QString path = NewFilePath(base, suffix);
+		QString err;
+		if (WriteFile(path, (int)k, copy, starts[k], names, true, err))
+			emit ClipSaved(path);
+		else
+			emit ErrorOccurred(err.isEmpty() ? tr("Could not save %1.").arg(path) : err);
 	}
 	for (Stored &st : copy)
 		av_packet_free(&st.pkt);
-
-	if (ok)
-		emit ClipSaved(path);
-	else
-		emit ErrorOccurred(err.isEmpty() ? tr("Could not save the clip.") : err);
 }
 
 void Engine::ToggleRecording()
 {
 	if (recording) {
-		std::unique_ptr<Muxer> mux;
+		std::vector<Recording> done;
 		{
 			std::lock_guard<std::mutex> lock(recMutex);
-			mux = std::move(recMuxer);
+			done = std::move(recs);
+			recs.clear();
 		}
 		recording = false;
-		bool ok = mux && mux->Close();
-		emit RecordingStopped(recPath);
-		if (!ok)
-			emit ErrorOccurred(tr("The recording may not have been finalized correctly."));
+		for (Recording &r : done) {
+			bool ok = r.muxer && r.muxer->Close();
+			emit RecordingStopped(r.path);
+			if (!ok)
+				emit ErrorOccurred(tr("%1 may not have been finalized correctly.").arg(r.path));
+		}
 		return;
 	}
 
@@ -385,30 +551,47 @@ void Engine::ToggleRecording()
 		return;
 	}
 
-	auto mux = std::make_unique<Muxer>();
-	QString path = NewFilePath("Recording");
-	QString err;
-	if (!mux->Open(path, venc, aenc, trackNames, false, err)) {
-		emit ErrorOccurred(err);
-		return;
+	QStringList names = CurrentTrackNames();
+	QString base = "Recording " + QDateTime::currentDateTime().toString("yyyy-MM-dd hh-mm-ss");
+	std::vector<Recording> started;
+	for (auto &p : pipes) {
+		Recording r;
+		r.muxer = std::make_unique<Muxer>();
+		r.path = NewFilePath(base, p->label.isEmpty() ? QString() : QString(" (%1)").arg(p->label));
+		QString err;
+		if (!r.muxer->Open(r.path, p->enc, aenc, names, false, err)) {
+			emit ErrorOccurred(err);
+			return;
+		}
+		started.push_back(std::move(r));
 	}
 	{
 		std::lock_guard<std::mutex> lock(recMutex);
-		recMuxer = std::move(mux);
-		recWaitingForKey = true;
+		recs = std::move(started);
 	}
-	recPath = path;
 	recording = true;
-	forceKeyframe = true;
-	emit RecordingStarted(path);
+	for (auto &p : pipes)
+		p->forceKeyframe = true;
+	std::vector<QString> paths;
+	{
+		std::lock_guard<std::mutex> lock(recMutex);
+		for (Recording &r : recs)
+			paths.push_back(r.path);
+	}
+	for (const QString &path : paths)
+		emit RecordingStarted(path);
 }
 
 /* ------------------------------------------------------------------------ */
 /* Video                                                                    */
 
-void Engine::VideoThread()
+void Engine::VideoThread(int index)
 {
 	CoInitializeEx(nullptr, COINIT_MULTITHREADED); // WinRT (Graphics Capture) needs an apartment
+
+	VideoPipe &pipe = *pipes[(size_t)index];
+	const int outW = pipe.width, outH = pipe.height;
+	AVCodecContext *venc = pipe.enc;
 
 	VideoCapture capture;
 	VideoFrame frame;
@@ -429,9 +612,14 @@ void Engine::VideoThread()
 	int64_t nextTargetCheck = 0;
 
 	auto retarget = [&]() {
+		if (!pipe.main) {
+			if (!capture.Active())
+				capture.StartMonitor(pipe.monitor, s.captureCursor);
+			return;
+		}
 		if (s.captureMode == CaptureMode::Desktop) {
 			if (!capture.Active())
-				capture.StartMonitor(WinUtil::MonitorById(s.monitorId), s.captureCursor);
+				capture.StartMonitor(pipe.monitor, s.captureCursor);
 			return;
 		}
 		HWND want = s.gameExe.isEmpty() ? WinUtil::FindFullscreenWindow() : WinUtil::FindWindowForExe(s.gameExe);
@@ -470,7 +658,7 @@ void Engine::VideoThread()
 		}
 
 		out->pts = frameIndex;
-		if (forceKeyframe.exchange(false)) {
+		if (pipe.forceKeyframe.exchange(false)) {
 			out->pict_type = AV_PICTURE_TYPE_I;
 			out->flags |= AV_FRAME_FLAG_KEY;
 		} else {
@@ -480,7 +668,7 @@ void Engine::VideoThread()
 
 		if (avcodec_send_frame(venc, out) >= 0) {
 			while (avcodec_receive_packet(venc, pkt) >= 0) {
-				OnPacket(0, pkt, venc->time_base);
+				OnPacket(index, pkt, venc->time_base);
 				av_packet_unref(pkt);
 			}
 		}
@@ -552,7 +740,7 @@ void Engine::AudioThread()
 			f->pts = samples;
 			if (avcodec_send_frame(aenc[t], f) >= 0) {
 				while (avcodec_receive_packet(aenc[t], pkt) >= 0) {
-					OnPacket((int)t + 1, pkt, aenc[t]->time_base);
+					OnPacket((int)pipes.size() + (int)t, pkt, aenc[t]->time_base);
 					av_packet_unref(pkt);
 				}
 			}
