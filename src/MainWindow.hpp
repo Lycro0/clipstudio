@@ -79,6 +79,7 @@ private:
 	QSpinBox *autoTracks;
 	QLabel *autoStatus;
 	QCheckBox *allMonitors;
+	QComboBox *resBox, *extraFpsBox;
 
 	/* size-based scaling */
 	double scale = 1.0;
