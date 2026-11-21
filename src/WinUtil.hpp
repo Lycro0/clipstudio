@@ -5,6 +5,7 @@
 #include <QPair>
 #include <QSize>
 #include <QString>
+#include <QStringList>
 
 using NameValueList = QList<QPair<QString, QString>>; // (display name, value)
 
@@ -22,5 +23,10 @@ HWND FindWindowForExe(const QString &exe);     // largest visible window of that
 HWND FindFullscreenWindow();                   // foreground window covering its whole monitor
 
 QString ExeForWindow(HWND hwnd);
+QString ExeForProcess(DWORD pid);
+
+/* Executables that currently have an active (playing) audio session on any output device. */
+QStringList AppsPlayingAudio();
+bool IsProcessRunning(const QString &exe);
 
 } // namespace WinUtil

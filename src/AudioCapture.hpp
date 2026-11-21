@@ -22,6 +22,10 @@ public:
 	void Start();
 	void Stop();
 
+	/* Application captures only: switch to another exe ("" = idle/silent). */
+	void SetTarget(const std::wstring &exe);
+	std::wstring Target();
+
 	/* Reads up to `frames` stereo frames (interleaved). Returns frames read. */
 	size_t Read(float *dst, size_t frames);
 	size_t Available();
@@ -35,7 +39,9 @@ private:
 	void Push(const float *src, size_t frames);
 
 	Kind kind;
+	std::mutex targetMutex;
 	std::wstring target;
+	std::atomic<bool> targetChanged{false};
 	std::thread thread;
 	std::atomic<bool> running{false};
 

@@ -23,7 +23,11 @@ struct AVPacket;
 class AudioCapture;
 class Muxer;
 
-/* Capture -> encode -> in-memory clip buffer (+ optional recording). */
+/* Capture -> encode -> in-memory clip buffer (+ optional recording).
+ *
+ * Video: one pipeline for the main capture (game or chosen monitor) and, if enabled, one per
+ * other monitor. Every pipeline shares the same audio tracks, so a clip produces one file per
+ * monitor with identical audio. */
 class Engine : public QObject {
 	Q_OBJECT
 
@@ -40,6 +44,9 @@ public:
 	/* Video encoders that work on this PC, as (display name, ffmpeg encoder name). */
 	static NameValueList AvailableEncoders();
 
+	/* Which app each auto track is currently following (for the UI). */
+	QStringList AutoTrackApps();
+
 public slots:
 	void SaveClip();
 	void ToggleRecording();
@@ -50,34 +57,62 @@ signals:
 	void RecordingStopped(const QString &path);
 	void ErrorOccurred(const QString &message);
 	void BufferStateChanged(bool active);
+	void AutoTracksChanged();
 
 private:
 	struct Stored {
-		int stream;
+		int stream; // 0..V-1 = video pipelines, V.. = audio tracks
 		AVPacket *pkt;
 		int64_t us;
 		bool key;
 	};
 
+	struct VideoPipe {
+		bool main = false;
+		HMONITOR monitor = nullptr; // extra pipelines: the monitor to capture
+		QString label;              // file name suffix, e.g. "Display 2"
+		int width = 0, height = 0;
+		AVCodecContext *enc = nullptr;
+		std::thread thread;
+		std::atomic<bool> forceKeyframe{false};
+	};
+
+	struct Recording {
+		std::unique_ptr<Muxer> muxer;
+		bool waitingForKey = true;
+		int64_t startUs = 0;
+		QString path;
+	};
+
+	struct AutoSlot {
+		int source = -1; // index into sources
+		QString exe;     // app currently followed ("" = free)
+	};
+
 	bool OpenEncoders(QString &error);
 	void CloseEncoders();
-	void VideoThread();
+	void VideoThread(int pipe);
 	void AudioThread();
+	void WatchThread();
 	void OnPacket(int stream, AVPacket *pkt, AVRational tb);
 	void StopThreads();
-	QString NewFilePath(const QString &prefix) const;
+	QStringList CurrentTrackNames();
+	QString NewFilePath(const QString &base, const QString &suffix) const;
+	bool WriteFile(const QString &path, int pipe, const std::vector<Stored> &packets, int64_t startUs,
+		       const QStringList &names, bool fastStart, QString &error);
 
 	AppSettings s;
-	int outW = 1920, outH = 1080;
 
-	AVCodecContext *venc = nullptr;
+	std::vector<std::unique_ptr<VideoPipe>> pipes;
 	std::vector<AVCodecContext *> aenc;
-	QStringList trackNames;
+	QStringList fixedTrackNames;                // names of the non-auto tracks
 	std::vector<std::vector<int>> trackSources; // per track: indices into sources
-
 	std::vector<std::unique_ptr<AudioCapture>> sources;
 
-	std::thread videoThread, audioThread;
+	std::mutex autoMutex;
+	std::vector<AutoSlot> autoSlots;
+
+	std::thread audioThread, watchThread;
 	std::atomic<bool> running{false};
 	int64_t startQpc = 0;
 	int64_t qpcFreq = 1;
@@ -86,10 +121,6 @@ private:
 	std::deque<Stored> store;
 
 	std::mutex recMutex;
-	std::unique_ptr<Muxer> recMuxer;
+	std::vector<Recording> recs; // one per video pipeline while recording
 	std::atomic<bool> recording{false};
-	bool recWaitingForKey = false;
-	int64_t recStartUs = 0;
-	QString recPath;
-	std::atomic<bool> forceKeyframe{false};
 };
