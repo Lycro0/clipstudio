@@ -93,15 +93,18 @@ static AVCodecContext *CreateVideoEncoder(const char *name, int w, int h, int fp
 
 	AVDictionary *o = nullptr;
 	if (!strcmp(name, "h264_nvenc")) {
-		av_dict_set(&o, "preset", "p5", 0);
+		av_dict_set(&o, "preset", "p4", 0);
 		av_dict_set(&o, "rc", "cbr", 0);
+		av_dict_set(&o, "rc-lookahead", "0", 0); // fewer frames held in GPU memory
+		av_dict_set(&o, "surfaces", "4", 0);
 	} else if (!strcmp(name, "h264_amf")) {
 		av_dict_set(&o, "rc", "cbr", 0);
 		av_dict_set(&o, "quality", "balanced", 0);
 	} else if (!strcmp(name, "h264_qsv")) {
-		av_dict_set(&o, "preset", "medium", 0);
+		av_dict_set(&o, "preset", "faster", 0);
 	} else {
-		av_dict_set(&o, "preset", "veryfast", 0);
+		av_dict_set(&o, "preset", "superfast", 0);
+		av_dict_set(&o, "rc-lookahead", "10", 0);
 	}
 	int ret = avcodec_open2(c, codec, &o);
 	av_dict_free(&o);
@@ -163,12 +166,12 @@ bool Engine::OpenEncoders(QString &error)
 {
 	for (auto &p : pipes) {
 		if (!s.encoder.isEmpty())
-			p->enc = CreateVideoEncoder(s.encoder.toUtf8().constData(), p->width, p->height, s.fps,
-						    s.videoBitrate);
+			p->enc = CreateVideoEncoder(s.encoder.toUtf8().constData(), p->width, p->height, p->fps,
+						    p->bitrate);
 		for (const char *name : kEncoderOrder) {
 			if (p->enc)
 				break;
-			p->enc = CreateVideoEncoder(name, p->width, p->height, s.fps, s.videoBitrate);
+			p->enc = CreateVideoEncoder(name, p->width, p->height, p->fps, p->bitrate);
 		}
 		if (!p->enc) {
 			error = tr("No working video encoder found.");
@@ -242,8 +245,16 @@ bool Engine::Apply(const AppSettings &settings, QString &error)
 		p->monitor = mon;
 		p->label = label;
 		QSize size = WinUtil::MonitorSize(mon);
-		p->width = std::max(2, size.width() & ~1);
-		p->height = std::max(2, size.height() & ~1);
+		int w = size.width(), h = size.height();
+		if (s.outputHeight > 0 && h > s.outputHeight) { // scale down, keep the aspect ratio
+			w = (int)((int64_t)w * s.outputHeight / h);
+			h = s.outputHeight;
+		}
+		p->width = std::max(2, w & ~1);
+		p->height = std::max(2, h & ~1);
+		p->fps = isMain ? s.fps : std::min(s.fps, std::max(10, s.extraFps));
+		// Extra monitors are mostly static (Discord, browser): a third of the bitrate is plenty.
+		p->bitrate = isMain ? s.videoBitrate : std::max(3000, s.videoBitrate / 3);
 		pipes.push_back(std::move(p));
 	};
 	addPipe(true, mainMon, QString());
@@ -594,6 +605,7 @@ void Engine::VideoThread(int index)
 	AVCodecContext *venc = pipe.enc;
 
 	VideoCapture capture;
+	capture.SetMaxFps(pipe.fps);
 	VideoFrame frame;
 	SwsContext *sws = nullptr;
 
@@ -607,7 +619,7 @@ void Engine::VideoThread(int index)
 	memset(out->data[1], 128, (size_t)out->linesize[1] * (outH / 2));
 
 	AVPacket *pkt = av_packet_alloc();
-	const int64_t period = qpcFreq / s.fps;
+	const int64_t period = qpcFreq / pipe.fps;
 	int64_t frameIndex = 0;
 	int64_t nextTargetCheck = 0;
 
@@ -641,7 +653,7 @@ void Engine::VideoThread(int index)
 
 		if (capture.GetLatest(frame) && frame.width > 0 && frame.height > 0) {
 			sws = sws_getCachedContext(sws, frame.width, frame.height, AV_PIX_FMT_BGRA, outW, outH,
-						   AV_PIX_FMT_NV12, SWS_BILINEAR, nullptr, nullptr, nullptr);
+						   AV_PIX_FMT_NV12, SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
 			if (sws && av_frame_make_writable(out) >= 0) {
 				const uint8_t *src[1] = {frame.bgra.data()};
 				int srcStride[1] = {frame.width * 4};
