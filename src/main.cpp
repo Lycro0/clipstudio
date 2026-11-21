@@ -1,5 +1,6 @@
 #include <QApplication>
 #include <QDir>
+#include <QIcon>
 #include <QLockFile>
 #include <QMessageBox>
 #include <QStandardPaths>
@@ -16,6 +17,7 @@ int main(int argc, char *argv[])
 	QApplication::setOrganizationName("ClipStudio");
 	QApplication::setQuitOnLastWindowClosed(false); // keeps running in the tray
 	ApplyDarkTheme(app);
+	QApplication::setWindowIcon(QIcon(":/icon.png"));
 
 	QLockFile lock(QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation)).filePath("clipstudio.lock"));
 	if (!lock.tryLock(100)) {

@@ -8,6 +8,7 @@
 
 class Engine;
 class Hotkeys;
+class Updater;
 class ClipEditor;
 class QLabel;
 class QPushButton;
@@ -51,6 +52,7 @@ private:
 
 	Engine *engine;
 	Hotkeys *hotkeys;
+	Updater *updater;
 	void ApplyHotkeys();
 	AppSettings settings;
 	bool reallyQuit = false;
@@ -72,7 +74,7 @@ private:
 	QSpinBox *clipLen, *vBitrate, *aBitrate;
 	QRadioButton *modeGame, *modeDesktop;
 	QComboBox *gameWindow, *monitor;
-	QCheckBox *cursor, *startMin;
+	QCheckBox *cursor, *startMin, *autoUpdate;
 	QRadioButton *audioSimple, *audioPerApp;
 	QComboBox *micDev, *deskDev;
 	QGroupBox *appsGroup;

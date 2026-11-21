@@ -10,6 +10,9 @@ A portable `.zip` is attached too.
 
 Requires Windows 10 version 2004 (May 2020) or newer, 64-bit.
 
+ClipStudio checks for a new version once a day and offers to install it for you
+(Settings - Output - Updates, where you can also turn this off or click "Check now").
+
 ## Default hotkeys (work while a game has focus)
 
 | Action                       | Default  |

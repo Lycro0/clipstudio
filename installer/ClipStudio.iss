@@ -13,6 +13,7 @@ AppVersion={#AppVersion}
 AppPublisher=ClipStudio
 DefaultDirName={autopf}\ClipStudio
 DefaultGroupName=ClipStudio
+SetupIconFile=..\assets\ClipStudio.ico
 UninstallDisplayIcon={app}\ClipStudio.exe
 OutputDir=..\out
 OutputBaseFilename=ClipStudio-Setup-{#AppVersion}
@@ -44,3 +45,5 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 [Run]
 Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Visual C++ runtime..."; Flags: waituntilterminated skipifdoesntexist
 Filename: "{app}\ClipStudio.exe"; Description: "Launch ClipStudio"; Flags: nowait postinstall skipifsilent
+; Auto-updates install silently: start the new version afterwards.
+Filename: "{app}\ClipStudio.exe"; Flags: nowait; Check: WizardSilent

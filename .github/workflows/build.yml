@@ -59,10 +59,16 @@ jobs:
           New-Item -ItemType Directory -Force deps | Out-Null
           Move-Item (Get-ChildItem deps-tmp -Directory | Select-Object -First 1).FullName deps/ffmpeg
 
+      - name: Generate app icon
+        shell: pwsh
+        run: |
+          python -m pip install --quiet pillow
+          python assets/make_icon.py assets
+
       - uses: ilammy/msvc-dev-cmd@v1
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DFFMPEG_DIR="${{ github.workspace }}/deps/ffmpeg"
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DFFMPEG_DIR="${{ github.workspace }}/deps/ffmpeg" -DCLIPSTUDIO_VERSION_STRING="${{ steps.ver.outputs.version }}"
 
       - name: Build
         run: cmake --build build

@@ -1,0 +1,435 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>ClipStudio Trailer</title>
+<!-- icon.png: copy of assets/icon-1024.png (run assets/make_icon.py assets). Timed to NEON by a20 lite. -->
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: #050505; }
+  body { font-family: "Inter", sans-serif; color: #f2f2f2; }
+  #stage { position: relative; width: 1920px; height: 1080px; overflow: hidden; }
+
+  /* drifting background */
+  .bg { position: absolute; inset: -200px; }
+  .blob { position: absolute; border-radius: 50%; filter: blur(120px); opacity: .55; }
+  .grid { position: absolute; inset: 0; background-image:
+      linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+    background-size: 80px 80px; mask-image: radial-gradient(ellipse at center, #000 30%, transparent 75%); }
+  .vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,.75) 100%); }
+
+  .scene { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+           opacity: 0; will-change: opacity, transform, filter; }
+
+  /* feature layout: text left, visual right */
+  .feature { display: grid; grid-template-columns: 680px 980px; gap: 90px; align-items: center; }
+  .kicker { font: 600 22px Inter; letter-spacing: .22em; text-transform: uppercase; color: #8a8a8a; margin-bottom: 22px; }
+  .headline { font: 800 84px/1.02 "Inter Display", Inter; letter-spacing: -.03em; color: #fff; }
+  .line { font: 400 32px/1.4 Inter; color: #a9a9a9; margin-top: 28px; max-width: 640px; }
+  .keycaps { display: flex; gap: 14px; margin-top: 40px; }
+  .key { font: 700 30px "JetBrains Mono", monospace; padding: 16px 26px; border-radius: 14px;
+         background: #161616; border: 1px solid #333; box-shadow: 0 6px 0 #0d0d0d; color: #fff; }
+
+  /* app window mockup */
+  .win { width: 980px; border-radius: 18px; background: #0a0a0a; border: 1px solid #262626;
+         box-shadow: 0 40px 120px rgba(0,0,0,.7), 0 0 0 1px rgba(255,255,255,.03); overflow: hidden; }
+  .titlebar { height: 44px; display: flex; align-items: center; gap: 12px; padding: 0 18px; background: #0f0f0f;
+              border-bottom: 1px solid #1f1f1f; font: 600 16px Inter; color: #cfcfcf; }
+  .titlebar img { width: 22px; height: 22px; border-radius: 5px; }
+  .tabs { display: flex; gap: 8px; padding: 0 24px; border-bottom: 1px solid #1f1f1f; }
+  .tab { padding: 16px 22px; font: 500 18px Inter; color: #7a7a7a; border-bottom: 2px solid transparent; }
+  .tab.on { color: #fff; border-bottom-color: #fff; }
+  .body { padding: 28px; }
+  .status { font: 700 26px Inter; display: flex; gap: 40px; margin-bottom: 22px; }
+  .btnrow { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-bottom: 22px; }
+  .btn { height: 62px; border-radius: 12px; background: #1c1c1c; border: 1px solid #333; display: flex;
+         align-items: center; justify-content: center; font: 600 20px Inter; }
+  .btn.primary { background: #fff; color: #000; border-color: #fff; }
+  .log { background: #141414; border: 1px solid #262626; border-radius: 12px; padding: 16px 20px;
+         font: 400 18px "JetBrains Mono", monospace; color: #9a9a9a; height: 190px; overflow: hidden; }
+  .log div { white-space: nowrap; }
+  .toast { position: absolute; right: 40px; bottom: 40px; background: #141414; border: 1px solid #333;
+           border-radius: 14px; padding: 18px 24px; font: 600 20px Inter; box-shadow: 0 20px 60px rgba(0,0,0,.6);
+           display: flex; gap: 14px; align-items: center; }
+  .toast small { display: block; font: 400 16px Inter; color: #8a8a8a; margin-top: 4px; }
+  .toast img { width: 40px; height: 40px; border-radius: 9px; }
+
+  /* tracks */
+  .track { display: grid; grid-template-columns: 70px 230px 1fr; align-items: center; gap: 16px;
+           height: 62px; padding: 0 20px; border-radius: 12px; background: #121212; border: 1px solid #222;
+           margin-bottom: 10px; }
+  .tnum { font: 700 20px "JetBrains Mono", monospace; color: #6b6b6b; }
+  .tname { font: 600 21px Inter; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tname small { font: 400 15px Inter; color: #7a7a7a; margin-left: 8px; }
+  .meter { height: 10px; border-radius: 5px; background: #1f1f1f; overflow: hidden; }
+  .meter i { display: block; height: 100%; background: linear-gradient(90deg, #9a9a9a, #fff); border-radius: 5px; }
+  .tag { font: 600 13px Inter; letter-spacing: .08em; text-transform: uppercase; color: #000; background: #fff;
+         border-radius: 6px; padding: 3px 8px; margin-left: 10px; vertical-align: 3px; }
+
+  /* monitors */
+  .monitors { position: relative; width: 980px; height: 620px; }
+  .mon { position: absolute; border-radius: 16px; border: 10px solid #1a1a1a; background: #000; overflow: hidden;
+         box-shadow: 0 30px 80px rgba(0,0,0,.6); }
+  .stand { position: absolute; height: 70px; width: 26px; background: #161616; }
+  .file { position: absolute; display: flex; align-items: center; gap: 16px; padding: 16px 22px; border-radius: 14px;
+          background: #141414; border: 1px solid #333; font: 600 19px Inter; white-space: nowrap;
+          box-shadow: 0 16px 50px rgba(0,0,0,.6); }
+  .file .ic { width: 44px; height: 44px; border-radius: 10px; background: #fff; display: grid; place-items: center; }
+  .file .ic b { width: 0; height: 0; border-left: 14px solid #000; border-top: 9px solid transparent;
+                border-bottom: 9px solid transparent; margin-left: 4px; }
+  .file small { display: block; font: 400 15px Inter; color: #8a8a8a; margin-top: 2px; }
+
+  /* game frame */
+  .game { position: absolute; inset: 0; background:
+      radial-gradient(circle at 70% 30%, rgba(255,255,255,.18), transparent 40%),
+      linear-gradient(160deg, #2b2b2b 0%, #0f0f0f 55%, #1d1d1d 100%); }
+  .hud { position: absolute; font: 700 22px "JetBrains Mono", monospace; color: rgba(255,255,255,.85); }
+  .cross { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; }
+  .cross:before, .cross:after { content: ""; position: absolute; background: #fff; }
+  .cross:before { left: 14px; top: 0; width: 2px; height: 30px; }
+  .cross:after { top: 14px; left: 0; height: 2px; width: 30px; }
+
+  /* sliders */
+  .srow { display: grid; grid-template-columns: 230px 1fr 90px 90px; gap: 18px; align-items: center; margin-bottom: 18px; }
+  .slider { position: relative; height: 6px; background: #333; border-radius: 3px; }
+  .slider .fill { position: absolute; left: 0; top: 0; bottom: 0; background: #fff; border-radius: 3px; }
+  .slider .knob { position: absolute; top: -9px; width: 24px; height: 24px; margin-left: -12px; border-radius: 50%;
+                  background: #fff; box-shadow: 0 0 0 6px rgba(255,255,255,.08); }
+  .pct { font: 600 20px "JetBrains Mono", monospace; text-align: right; }
+  .mute { font: 500 17px Inter; color: #8a8a8a; }
+
+  /* chips */
+  .chips { display: flex; flex-wrap: wrap; gap: 14px; }
+  .chip { padding: 16px 24px; border-radius: 999px; border: 1px solid #333; background: #121212; font: 600 22px Inter; }
+  .chip.on { background: #fff; color: #000; border-color: #fff; }
+  .stat { margin-top: 34px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .stat div { background: #121212; border: 1px solid #262626; border-radius: 16px; padding: 22px 24px; }
+  .stat b { display: block; font: 800 46px "Inter Display", Inter; color: #fff; }
+  .stat span { font: 400 18px Inter; color: #8a8a8a; }
+
+  /* intro / end */
+  .center { text-align: center; display: flex; flex-direction: column; align-items: center; }
+  .logo { width: 220px; height: 220px; border-radius: 48px; }
+  .title { font: 800 140px "Inter Display", Inter; letter-spacing: -.045em; margin-top: 40px; color: #fff; }
+  .sub { font: 400 36px Inter; color: #9a9a9a; margin-top: 14px; }
+  .link { font: 600 34px "JetBrains Mono", monospace; color: #fff; margin-top: 30px; padding: 18px 30px;
+          border: 1px solid #333; border-radius: 16px; background: #111; }
+  .badge { font: 700 26px Inter; letter-spacing: .2em; text-transform: uppercase; color: #000; background: #fff;
+           padding: 12px 24px; border-radius: 12px; margin-top: 46px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="bg" id="bg">
+    <div class="blob" id="b1" style="width:900px;height:900px;background:#3a3a3a"></div>
+    <div class="blob" id="b2" style="width:700px;height:700px;background:#262626"></div>
+    <div class="blob" id="b3" style="width:600px;height:600px;background:#4a4a4a"></div>
+  </div>
+  <div class="grid" id="grid"></div>
+
+  <!-- 0: intro -->
+  <section class="scene" data-scene="intro">
+    <div class="center">
+      <img class="logo" id="introLogo" src="icon.png">
+      <div class="title" id="introTitle">ClipStudio</div>
+      <div class="sub" id="introSub">Clipping and recording for Windows gamers</div>
+    </div>
+  </section>
+
+  <!-- 1: instant clips -->
+  <section class="scene" data-scene="clips">
+    <div class="feature">
+      <div>
+        <div class="kicker">Instant replay</div>
+        <div class="headline">Press Alt+O.<br>It's clipped.</div>
+        <div class="line">The last 30 seconds are always kept in memory, ready to save while you play.</div>
+        <div class="keycaps"><div class="key" id="kAlt">Alt</div><div class="key" id="kO">O</div></div>
+      </div>
+      <div style="position:relative">
+        <div class="win">
+          <div class="titlebar"><img src="icon.png">ClipStudio</div>
+          <div class="tabs"><div class="tab on">Home</div><div class="tab">Clips</div><div class="tab">Settings</div></div>
+          <div class="body">
+            <div class="status"><span><b style="color:#3ddc84">●</b>&nbsp; Clip buffer ON (30 s)</span><span style="color:#9a9a9a" id="recState"><b style="color:#ff4d4d">●</b>&nbsp; Not recording</span></div>
+            <div class="btnrow"><div class="btn primary" id="saveBtn">Save Clip</div><div class="btn">Start Recording</div><div class="btn">Open clips folder</div></div>
+            <div class="log" id="clipLog"></div>
+          </div>
+        </div>
+        <div class="toast" id="toast1"><img src="icon.png"><div>Clip saved<small>Clip 2026-11-21 20-15-03.mp4</small></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2: game or desktop -->
+  <section class="scene" data-scene="capture">
+    <div class="feature">
+      <div>
+        <div class="kicker">Capture</div>
+        <div class="headline">Game only or<br>full desktop.</div>
+        <div class="line">Finds your fullscreen game by itself and stretches it to fill the frame. No canvas to arrange.</div>
+      </div>
+      <div class="monitors">
+        <div class="mon" style="left:40px;top:20px;width:900px;height:520px;border-width:12px">
+          <div class="game" id="gameFrame"></div>
+          <div class="cross"></div>
+          <div class="hud" style="left:26px;top:20px">HP 100</div>
+          <div class="hud" style="right:26px;top:20px">12 : 04</div>
+          <div class="hud" style="right:26px;bottom:20px" id="fpsHud">60 FPS</div>
+          <div id="capFrame" style="position:absolute;border:3px solid #fff;border-radius:6px;box-shadow:0 0 40px rgba(255,255,255,.35)"></div>
+        </div>
+        <div class="stand" style="left:477px;top:552px"></div>
+        <div style="position:absolute;left:380px;top:612px;width:220px;height:10px;border-radius:5px;background:#161616"></div>
+        <div class="chips" style="position:absolute;left:40px;top:-74px">
+          <div class="chip on" id="chipGame">Game only</div><div class="chip" id="chipDesk">Full desktop</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3: tracks -->
+  <section class="scene" data-scene="tracks">
+    <div class="feature">
+      <div>
+        <div class="kicker">Audio</div>
+        <div class="headline">Every app on<br>its own track.</div>
+        <div class="line">Mic, Discord, Spotify and your game are split apart, so you can edit each one separately.</div>
+      </div>
+      <div id="trackList"></div>
+    </div>
+  </section>
+
+  <!-- 4: monitors -->
+  <section class="scene" data-scene="monitors">
+    <div class="feature">
+      <div>
+        <div class="kicker">Multi-monitor</div>
+        <div class="headline">Clip every<br>monitor.</div>
+        <div class="line">Your second screen is saved as its own file with the same audio. Catch the reactions too.</div>
+      </div>
+      <div class="monitors">
+        <div class="mon" id="monA" style="left:0;top:40px;width:560px;height:330px">
+          <div class="game"></div><div class="cross" style="transform:scale(.7)"></div>
+          <div class="hud" style="left:18px;top:14px;font-size:16px">HP 100</div>
+        </div>
+        <div class="mon" id="monB" style="left:590px;top:80px;width:390px;height:250px;background:#111">
+          <div style="position:absolute;inset:0;padding:16px;display:grid;grid-template-columns:80px 1fr;gap:12px">
+            <div style="background:#1b1b1b;border-radius:8px"></div>
+            <div id="chatLines"></div>
+          </div>
+        </div>
+        <div class="file" id="fileA" style="left:30px;top:430px"><div class="ic"><b></b></div><div>Clip 20-15-03.mp4<small>Main monitor · 1080p 60 FPS</small></div></div>
+        <div class="file" id="fileB" style="left:470px;top:520px"><div class="ic"><b></b></div><div>Clip 20-15-03 (Display 2).mp4<small>Second monitor · same audio</small></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5: mixer -->
+  <section class="scene" data-scene="mixer">
+    <div class="feature">
+      <div>
+        <div class="kicker">Clips tab</div>
+        <div class="headline">Fix the mix<br>afterwards.</div>
+        <div class="line">Discord too loud? Turn it down, turn the game up and save. Right inside the app.</div>
+      </div>
+      <div class="win">
+        <div class="titlebar"><img src="icon.png">ClipStudio</div>
+        <div class="tabs"><div class="tab">Home</div><div class="tab on">Clips</div><div class="tab">Settings</div></div>
+        <div class="body">
+          <div style="font:700 24px Inter;margin-bottom:6px">Clip 2026-11-21 20-15-03.mp4</div>
+          <div style="font:400 17px Inter;color:#8a8a8a;margin-bottom:24px">30.0 s · 10 audio tracks</div>
+          <div id="sliders"></div>
+          <div class="btnrow" style="margin:18px 0 0"><div class="btn">Preview</div><div class="btn">Save as copy</div><div class="btn primary">Overwrite clip</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6: performance -->
+  <section class="scene" data-scene="perf">
+    <div class="feature">
+      <div>
+        <div class="kicker">Performance</div>
+        <div class="headline">Light on<br>your PC.</div>
+        <div class="line">Encodes on your graphics card and records at 1080p by default, with lighter settings for extra monitors.</div>
+      </div>
+      <div>
+        <div class="chips">
+          <div class="chip" id="enc0">NVIDIA NVENC</div><div class="chip" id="enc1">AMD AMF</div>
+          <div class="chip" id="enc2">Intel Quick Sync</div><div class="chip" id="enc3">x264 fallback</div>
+        </div>
+        <div class="stat">
+          <div><b id="st1">1080p</b><span>main capture</span></div>
+          <div><b id="st2">60</b><span>FPS, up to 144</span></div>
+          <div><b id="st3">720p</b><span>other monitors</span></div>
+        </div>
+        <div class="win" style="margin-top:26px;width:100%">
+          <div class="body" style="padding:22px 26px">
+            <div style="display:flex;justify-content:space-between;font:600 19px Inter;color:#cfcfcf;margin-bottom:14px"><span>Runs in the tray</span><span id="hk">Alt+O · Alt+R · Alt+\</span></div>
+            <div class="meter" style="height:12px"><i id="perfBar" style="width:30%"></i></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7: end -->
+  <section class="scene" data-scene="end">
+    <div class="center">
+      <img class="logo" src="icon.png" style="width:170px;height:170px;border-radius:38px">
+      <div class="title" style="font-size:110px;margin-top:30px">ClipStudio</div>
+      <div class="badge">Free and open source</div>
+      <div class="link">github.com/Lycro0/clipstudio</div>
+      <div class="sub" style="font-size:28px;margin-top:22px">Download the installer from GitHub Releases</div>
+    </div>
+  </section>
+
+  <div class="vignette"></div>
+</div>
+
+<script>
+/* Scene start times in seconds. Adjusted to the music's beats before the final render. */
+/* Timed to "NEON" (129 BPM): each scene change lands on the downbeat of a 4-bar phrase,
+ * starting with the drop at 7.41 s. The audio starts 7.241 s into the song. */
+window.TIMES = window.TIMES || [0, 7.411, 14.771, 22.155, 29.563, 36.947, 44.33, 51.714];
+window.DURATION = window.DURATION || 60.93;
+const BAR = 4 * 60 / 129.2;
+const FADE = 0.8;
+
+const scenes = [...document.querySelectorAll('.scene')];
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const ease = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const prog = (t, a, b) => ease(clamp((t - a) / (b - a), 0, 1));
+const $ = id => document.getElementById(id);
+
+/* static content */
+const logLines = ['20:14:02  Ready. Clip buffer holds the last 30 seconds.',
+                  '20:14:02  Track 3 (Discord): DiscordCanary.exe',
+                  '20:14:09  Track 5 (Game): FortniteClient-Win64-Shipping.exe',
+                  '20:15:03  Clip saved: Clip 2026-11-21 20-15-03.mp4'];
+const tracks = [
+  ['1', 'Everything', 'desktop + mic'], ['2', 'Mic', ''], ['3', 'Discord', 'DiscordCanary.exe'],
+  ['4', 'Spotify', ''], ['5', 'Game', 'Fortnite'], ['6', 'Auto', 'chrome.exe'], ['7', 'Auto', 'waiting']];
+$('trackList').innerHTML = tracks.map((r, i) =>
+  `<div class="track" id="tr${i}"><div class="tnum">${r[0]}</div>
+   <div class="tname">${r[1]}${r[2] ? `<small id="trs${i}">${r[2]}</small>` : ''}</div>
+   <div class="meter"><i id="tm${i}" style="width:0%"></i></div></div>`).join('');
+const mix = [['Everything', 100, 100], ['Mic', 100, 110], ['Discord', 100, 45], ['Spotify', 100, 70], ['Game', 100, 140]];
+$('sliders').innerHTML = mix.map((m, i) =>
+  `<div class="srow"><div class="tname">${i + 1}. ${m[0]}</div>
+   <div class="slider"><div class="fill" id="sf${i}"></div><div class="knob" id="sk${i}"></div></div>
+   <div class="pct" id="sp${i}">100 %</div><div class="mute">Mute</div></div>`).join('');
+$('chatLines').innerHTML = Array.from({length: 6}, (_, i) =>
+  `<div id="cl${i}" style="height:20px;border-radius:6px;background:#2a2a2a;margin-bottom:12px;width:${60 + (i * 37) % 35}%"></div>`).join('');
+
+/* deterministic pseudo-noise for meters */
+const noise = (i, t) => .5 + .25 * Math.sin(t * 7.1 + i * 2.3) + .2 * Math.sin(t * 13.7 + i * 5.1) + .05 * Math.sin(t * 29 + i);
+
+function sceneLocal(i, t) { return t - TIMES[i]; }
+
+function renderScene(i, t) {
+  const L = sceneLocal(i, t);
+  const name = scenes[i].dataset.scene;
+  if (name === 'intro') {
+    const a = prog(L, .2, 1.6);
+    $('introLogo').style.transform = `scale(${.6 + .4 * a}) rotate(${(1 - a) * -12}deg)`;
+    $('introLogo').style.opacity = a;
+    $('introLogo').style.filter = `drop-shadow(0 0 ${60 * a}px rgba(255,255,255,${.25 * a}))`;
+    const b = prog(L, 1.0, 2.2);
+    $('introTitle').style.opacity = b; $('introTitle').style.transform = `translateY(${30 * (1 - b)}px)`;
+    const c = prog(L, 1.8, 3.0);
+    $('introSub').style.opacity = c; $('introSub').style.transform = `translateY(${20 * (1 - c)}px)`;
+  }
+  if (name === 'clips') {
+    const press = L > BAR && L < BAR + 0.4;
+    for (const k of ['kAlt', 'kO']) {
+      $(k).style.transform = press ? 'translateY(5px)' : 'none';
+      $(k).style.boxShadow = press ? '0 1px 0 #0d0d0d' : '0 6px 0 #0d0d0d';
+      $(k).style.background = press ? '#fff' : '#161616';
+      $(k).style.color = press ? '#000' : '#fff';
+    }
+    $('saveBtn').style.transform = press ? 'scale(.97)' : 'none';
+    const n = L < BAR + 0.1 ? 3 : 4;
+    $('clipLog').innerHTML = logLines.slice(0, n).map((l, j) =>
+      `<div style="color:${j === 3 ? '#fff' : '#9a9a9a'}">${l}</div>`).join('');
+    const ta = prog(L, BAR + 0.15, BAR + 0.7) * (1 - prog(L, 3 * BAR, 3 * BAR + 0.6));
+    $('toast1').style.opacity = ta; $('toast1').style.transform = `translateY(${30 * (1 - ta)}px)`;
+  }
+  if (name === 'capture') {
+    const a = prog(L, 1.0, 2.4);
+    const w = 900 - 24, h = 520 - 24;
+    const fw = w * (.55 + .45 * a), fh = h * (.55 + .45 * a);
+    const f = $('capFrame');
+    f.style.width = fw + 'px'; f.style.height = fh + 'px';
+    f.style.left = (w - fw) / 2 + 'px'; f.style.top = (h - fh) / 2 + 'px';
+    f.style.opacity = 1 - prog(L, 3.2, 4.0);
+    $('gameFrame').style.backgroundPosition = `${L * 20}px ${L * 8}px`;
+    const desk = L > 2 * BAR && L < 3 * BAR;
+    $('chipGame').className = 'chip' + (desk ? '' : ' on');
+    $('chipDesk').className = 'chip' + (desk ? ' on' : '');
+  }
+  if (name === 'tracks') {
+    tracks.forEach((r, j) => {
+      const appear = prog(L, .4 + j * .18, .9 + j * .18);
+      const row = $('tr' + j);
+      row.style.opacity = appear; row.style.transform = `translateX(${40 * (1 - appear)}px)`;
+      let lvl = noise(j, L) * appear;
+      if (j === 6) {
+        const claimed = L > 2 * BAR;
+        $('trs6').textContent = claimed ? 'Steam.exe' : 'waiting';
+        lvl = claimed ? lvl * prog(L, 2 * BAR, 2 * BAR + 0.4) : 0;
+        row.style.borderColor = claimed && L < 2.6 * BAR ? '#fff' : '#222';
+      }
+      $('tm' + j).style.width = (lvl * 100).toFixed(1) + '%';
+    });
+  }
+  if (name === 'monitors') {
+    const flash = prog(L, BAR, BAR + 0.15) * (1 - prog(L, BAR + 0.15, BAR + 0.7));
+    $('monA').style.boxShadow = `0 30px 80px rgba(0,0,0,.6), 0 0 ${80 * flash}px rgba(255,255,255,${.6 * flash})`;
+    $('monB').style.boxShadow = $('monA').style.boxShadow;
+    for (let i = 0; i < 6; i++) $('cl' + i).style.opacity = .5 + .5 * Math.max(0, Math.sin(L * 2 - i));
+    const fa = prog(L, BAR + 0.3, BAR + 0.9), fb = prog(L, 1.5 * BAR + 0.3, 1.5 * BAR + 0.9);
+    $('fileA').style.opacity = fa; $('fileA').style.transform = `translateY(${30 * (1 - fa)}px)`;
+    $('fileB').style.opacity = fb; $('fileB').style.transform = `translateY(${30 * (1 - fb)}px)`;
+  }
+  if (name === 'mixer') {
+    mix.forEach((m, j) => {
+      const p = prog(L, 1.2 + j * .45, 2.4 + j * .45);
+      const v = m[1] + (m[2] - m[1]) * p;
+      $('sf' + j).style.width = (v / 2) + '%'; $('sk' + j).style.left = (v / 2) + '%';
+      $('sp' + j).textContent = Math.round(v) + ' %';
+    });
+  }
+  if (name === 'perf') {
+    for (let j = 0; j < 4; j++) $('enc' + j).className = 'chip' + (Math.floor(L / .9) % 4 === j && L < 5 ? ' on' : (L >= 5 && j === 0 ? ' on' : ''));
+    $('perfBar').style.width = (22 + 6 * Math.sin(L * 2.2)).toFixed(1) + '%';
+  }
+}
+
+window.renderAt = function (t) {
+  /* drifting background */
+  $('b1').style.transform = `translate(${300 + 180 * Math.sin(t * .11)}px, ${150 + 120 * Math.cos(t * .09)}px)`;
+  $('b2').style.transform = `translate(${1300 + 160 * Math.cos(t * .08)}px, ${600 + 140 * Math.sin(t * .12)}px)`;
+  $('b3').style.transform = `translate(${900 + 220 * Math.sin(t * .07 + 1)}px, ${200 + 160 * Math.sin(t * .1)}px)`;
+  $('grid').style.backgroundPosition = `${t * 6}px ${t * 4}px`;
+
+  /* crossfades: 0.8 s, with a slight scale and blur */
+  scenes.forEach((el, i) => {
+    const start = TIMES[i], end = i + 1 < TIMES.length ? TIMES[i + 1] : DURATION + FADE;
+    let o = 1, k = 0;
+    if (t < start - FADE / 2 || t > end + FADE / 2) { el.style.opacity = 0; el.style.display = 'none'; return; }
+    el.style.display = 'flex';
+    if (i > 0 && t < start + FADE / 2) { k = (t - (start - FADE / 2)) / FADE; o = ease(clamp(k, 0, 1)); k = 1 - o; }
+    else if (t > end - FADE / 2) { k = (t - (end - FADE / 2)) / FADE; o = 1 - ease(clamp(k, 0, 1)); k = 1 - o; }
+    if (i === 0 && t < .9) { o = ease(clamp(t / .9, 0, 1)); k = 1 - o; }      /* first fade-in */
+    if (i === scenes.length - 1 && t > DURATION - 1.2) { o = 1 - ease(clamp((t - (DURATION - 1.2)) / 1.2, 0, 1)); }
+    el.style.opacity = o;
+    el.style.transform = `scale(${1 + .04 * k})`;
+    el.style.filter = k > .001 ? `blur(${(10 * k).toFixed(2)}px)` : 'none';
+    renderScene(i, t);
+  });
+};
+window.renderAt(parseFloat(new URLSearchParams(location.search).get('t') || '0'));
+</script>
+</body>
+</html>
