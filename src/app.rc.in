@@ -1,0 +1,25 @@
+#include <winver.h>
+
+// First icon in the file = the .exe icon in Explorer, taskbar and shortcuts.
+IDI_APPICON ICON "@CLIPSTUDIO_ICON@"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION 1,0,0,0
+PRODUCTVERSION 1,0,0,0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "FileDescription", "ClipStudio - game clipping and recording"
+      VALUE "ProductName", "ClipStudio"
+      VALUE "OriginalFilename", "ClipStudio.exe"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END

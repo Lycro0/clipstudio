@@ -1,0 +1,25 @@
+TITLE
+ClipStudio - Free Game Clipping App with Separate Audio Tracks for Every App
+
+DESCRIPTION
+ClipStudio is a free, open source clipping and recording app for Windows gamers.
+
+Press Alt+O and the last 30 seconds are saved. Every app gets its own audio track (your mic, Discord, Spotify and your game), so you can edit each one separately in Premiere, DaVinci Resolve or any editor. Or fix the mix right inside ClipStudio.
+
+Features:
+- Instant clips with Alt+O, recording with Alt+R, show or hide the window with Alt+\
+- Game only or full desktop capture, stretched to fill the frame (no canvas to arrange)
+- Separate audio tracks: everything, mic, Discord, Spotify, your game, plus automatic tracks for any other app playing sound
+- Clip every monitor: your second screen is saved as its own file with the same audio
+- Built-in mixer: turn Discord down or the game up after the fact and save
+- GPU encoding with NVIDIA NVENC, AMD AMF or Intel Quick Sync (x264 fallback), 1080p by default
+- Runs quietly in the system tray
+
+Download (free): https://github.com/Lycro0/clipstudio/releases
+Source code: https://github.com/Lycro0/clipstudio
+
+Requires Windows 10 (version 2004) or newer, 64-bit.
+
+Music: NEON by a20 lite
+
+#ClipStudio #Gaming #Clipping #OpenSource #Windows

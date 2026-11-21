@@ -50,6 +50,7 @@ struct AppSettings {
 	int autoTracks = 5;             // extra tracks that follow whatever else plays sound
 
 	bool startMinimized = false;
+	bool autoUpdate = true; // check GitHub for a new version once a day
 
 	void load();
 	void save() const;

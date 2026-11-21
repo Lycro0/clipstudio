@@ -73,6 +73,7 @@ void AppSettings::load()
 		autoTracks = std::max(autoTracks, d.autoTracks);
 
 	startMinimized = s.value("general/startMinimized", false).toBool();
+	autoUpdate = s.value("general/autoUpdate", true).toBool();
 }
 
 void AppSettings::save() const
@@ -108,6 +109,7 @@ void AppSettings::save() const
 	}
 	s.endArray();
 	s.setValue("general/startMinimized", startMinimized);
+	s.setValue("general/autoUpdate", autoUpdate);
 	s.setValue("general/settingsVersion", 3);
 	s.sync();
 }
