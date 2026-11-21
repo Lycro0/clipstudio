@@ -37,6 +37,8 @@ void AppSettings::load()
 	captureCursor = s.value("video/cursor", d.captureCursor).toBool();
 
 	clipAllMonitors = s.value("video/allMonitors", d.clipAllMonitors).toBool();
+	outputHeight = s.value("video/outputHeight", d.outputHeight).toInt();
+	extraFps = s.value("video/extraFps", d.extraFps).toInt();
 
 	audioMode = s.value("audio/mode", "perapp").toString() == "perapp" ? AudioMode::PerApp : AudioMode::Simple;
 	autoTracks = std::clamp(s.value("audio/autoTracks", d.autoTracks).toInt(), 0, kMaxAutoTracks);
@@ -86,6 +88,8 @@ void AppSettings::save() const
 	s.setValue("video/monitorId", monitorId);
 	s.setValue("video/cursor", captureCursor);
 	s.setValue("video/allMonitors", clipAllMonitors);
+	s.setValue("video/outputHeight", outputHeight);
+	s.setValue("video/extraFps", extraFps);
 	s.setValue("audio/autoTracks", autoTracks);
 	s.setValue("audio/mode", audioMode == AudioMode::PerApp ? "perapp" : "simple");
 	s.setValue("audio/mic", micDevice);

@@ -37,7 +37,10 @@ struct AppSettings {
 	QString monitorId; // empty = primary monitor (\\.\DISPLAY1 style device name)
 	bool captureCursor = true;
 
+	int outputHeight = 1080;     // 0 = native; otherwise scale down to this height (keeps aspect)
+
 	bool clipAllMonitors = true; // also save a separate clip of every other monitor
+	int extraFps = 30;           // other monitors are recorded lighter than the main one
 
 	AudioMode audioMode = AudioMode::PerApp;
 	QString micDevice = "default";
