@@ -44,6 +44,10 @@ struct VideoCapture::Impl {
 	std::atomic<bool> active{false};
 	HWND hwnd = nullptr;
 
+	int64_t qpcFreq = 1;
+	std::atomic<int64_t> minInterval{0}; // QPC ticks between copied frames
+	int64_t lastCopy = 0;
+
 	bool EnsureDevice()
 	{
 		if (device)
@@ -103,6 +107,15 @@ struct VideoCapture::Impl {
 		}
 		if (size.Width <= 0 || size.Height <= 0)
 			return;
+
+		/* Skip frames we would never encode: copying every frame of a 144/240 Hz monitor
+		 * off the GPU is the most expensive part of capturing. */
+		LARGE_INTEGER now;
+		QueryPerformanceCounter(&now);
+		int64_t interval = minInterval;
+		if (interval > 0 && lastCopy != 0 && now.QuadPart - lastCopy < interval - interval / 8)
+			return;
+		lastCopy = now.QuadPart;
 
 		auto access = frame.Surface().as<::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
 		winrt::com_ptr<ID3D11Texture2D> tex;
@@ -168,7 +181,17 @@ struct VideoCapture::Impl {
 	}
 };
 
-VideoCapture::VideoCapture() : d(std::make_unique<Impl>()) {}
+VideoCapture::VideoCapture() : d(std::make_unique<Impl>())
+{
+	LARGE_INTEGER f;
+	QueryPerformanceFrequency(&f);
+	d->qpcFreq = f.QuadPart;
+}
+
+void VideoCapture::SetMaxFps(int fps)
+{
+	d->minInterval = fps > 0 ? d->qpcFreq / fps : 0;
+}
 
 VideoCapture::~VideoCapture()
 {
@@ -232,7 +255,7 @@ bool VideoCapture::GetLatest(VideoFrame &out)
 		return false;
 	out.width = d->latest.width;
 	out.height = d->latest.height;
-	out.bgra = d->latest.bgra;
+	out.bgra.swap(d->latest.bgra); // no 8-33 MB copy per frame
 	out.serial = d->latest.serial;
 	return true;
 }
