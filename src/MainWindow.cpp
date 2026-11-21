@@ -37,15 +37,6 @@
 #include <algorithm>
 #include <cmath>
 
-/* "Discord.exe" -> "Discord" */
-static QString FriendlyAppName(const QString &exe)
-{
-	QString name = QFileInfo(exe).completeBaseName();
-	if (!name.isEmpty())
-		name[0] = name[0].toUpper();
-	return name;
-}
-
 MainWindow::MainWindow(Engine *eng, QWidget *parent) : QMainWindow(parent), engine(eng)
 {
 	hotkeys = new Hotkeys(this);
@@ -135,6 +126,7 @@ QWidget *MainWindow::BuildHomeTab()
 
 	auto *btnRow = new QHBoxLayout;
 	clipBtn = new QPushButton(tr("Save Clip"));
+	clipBtn->setObjectName("primary");
 	recBtn = new QPushButton(tr("Start Recording"));
 	auto *folderBtn = new QPushButton(tr("Open clips folder"));
 	for (QPushButton *b : {clipBtn, recBtn, folderBtn}) {
@@ -208,8 +200,18 @@ QWidget *MainWindow::BuildSettingsTab()
 	for (int f : {15, 30, 60})
 		extraFpsBox->addItem(tr("%1 FPS").arg(f), f);
 	extraFpsBox->setToolTip(tr("Lower = less GPU/CPU. The main capture keeps its own FPS."));
-	vf->addRow(tr("Other monitors"), extraFpsBox);
+	extraResBox = new QComboBox;
+	extraResBox->addItem(tr("480p"), 480);
+	extraResBox->addItem(tr("720p (recommended)"), 720);
+	extraResBox->addItem(tr("1080p"), 1080);
+	extraResBox->addItem(tr("Native"), 0);
+	auto *extraRow = new QHBoxLayout;
+	extraRow->addWidget(extraFpsBox);
+	extraRow->addWidget(extraResBox);
+	extraRow->addStretch(1);
+	vf->addRow(tr("Other monitors"), extraRow);
 	connect(allMonitors, &QCheckBox::toggled, extraFpsBox, &QWidget::setEnabled);
+	connect(allMonitors, &QCheckBox::toggled, extraResBox, &QWidget::setEnabled);
 	vf->addRow("", new QLabel(tr("The capture is always stretched to fill the whole video — no canvas to arrange.")));
 	l->addWidget(vid);
 
@@ -231,38 +233,25 @@ QWidget *MainWindow::BuildSettingsTab()
 	trackHelp->setWordWrap(true);
 	af->addRow("", trackHelp);
 
-	appsGroup = new QGroupBox(tr("App tracks (each app gets its own audio track)"));
-	auto *ag = new QGridLayout(appsGroup);
-	for (int i = 0; i < kMaxAppTracks; i++) {
-		AppRow r;
-		r.app = new QComboBox;
-		r.name = new QLineEdit;
-		r.name->setPlaceholderText(tr("Track name"));
-		ag->addWidget(new QLabel(tr("Track %1").arg(i + 3)), i, 0);
-		ag->addWidget(r.app, i, 1);
-		ag->addWidget(r.name, i, 2);
-		connect(r.app, &QComboBox::activated, this, [this, r](int idx) {
-			QString id = r.app->itemData(idx).toString();
-			if (!id.isEmpty())
-				r.name->setText(FriendlyAppName(id));
-			else
-				r.name->clear();
-		});
-		appRows.append(r);
-	}
-	auto *refreshApps = new QPushButton(tr("Refresh app list"));
-	ag->addWidget(refreshApps, kMaxAppTracks, 0, 1, 3);
-
+	appsGroup = new QGroupBox(tr("App tracks"));
+	auto *ag = new QVBoxLayout(appsGroup);
+	auto *layoutInfo = new QLabel(tr("Track 3: Discord (any edition)  ·  Track 4: Spotify  ·  Track 5: the game you are "
+					 "playing (detected automatically)  ·  then automatic tracks: every other app that "
+					 "plays sound (Chrome, ...) gets one. Closed apps free their track, and if all are "
+					 "busy the one that has been quiet the longest is reused."));
+	layoutInfo->setWordWrap(true);
+	ag->addWidget(layoutInfo);
 	autoTracks = new QSpinBox;
-	autoTracks->setRange(0, kMaxAutoTracks);
+	autoTracks->setRange(1, kMaxAutoTracks);
 	auto *autoRow = new QHBoxLayout;
-	autoRow->addWidget(new QLabel(tr("Automatic tracks for any other app playing sound (games, browsers...):")));
+	autoRow->addWidget(new QLabel(tr("Number of automatic tracks:")));
 	autoRow->addWidget(autoTracks);
 	autoRow->addStretch(1);
-	ag->addLayout(autoRow, kMaxAppTracks + 1, 0, 1, 3);
+	ag->addLayout(autoRow);
 	autoStatus = new QLabel;
+	autoStatus->setObjectName("muted");
 	autoStatus->setWordWrap(true);
-	ag->addWidget(autoStatus, kMaxAppTracks + 2, 0, 1, 3);
+	ag->addWidget(autoStatus);
 	af->addRow(appsGroup);
 	l->addWidget(aud);
 
@@ -320,12 +309,10 @@ QWidget *MainWindow::BuildSettingsTab()
 	connect(audioPerApp, &QRadioButton::toggled, this, [this, trackHelp]() {
 		UpdateModeVisibility();
 		trackHelp->setText(audioPerApp->isChecked()
-					   ? tr("Track 1: Mic + Desktop (everything) · Track 2: Mic · then the apps below, then "
-						"automatic tracks that attach to anything else that starts playing sound")
+					   ? tr("Track 1: everything (desktop + mic)  ·  Track 2: Mic  ·  Tracks 3+: see below")
 					   : tr("Track 1: Mic + Desktop · Track 2: Desktop · Track 3: Mic"));
 	});
 	connect(refreshGames, &QPushButton::clicked, this, &MainWindow::RefreshAppLists);
-	connect(refreshApps, &QPushButton::clicked, this, &MainWindow::RefreshAppLists);
 	connect(browse, &QPushButton::clicked, this, [this]() {
 		QString d = QFileDialog::getExistingDirectory(this, tr("Clips folder"), outDir->text());
 		if (!d.isEmpty())
@@ -385,17 +372,6 @@ void MainWindow::RefreshAppLists()
 	for (auto &it : apps)
 		gameWindow->addItem(it.first, it.second);
 	SelectData(gameWindow, curGame);
-
-	for (int i = 0; i < appRows.size(); i++) {
-		AppRow &r = appRows[i];
-		QString cur = r.app->count() ? r.app->currentData().toString()
-					     : (i < settings.appTracks.size() ? settings.appTracks[i].exe : QString());
-		r.app->clear();
-		r.app->addItem(tr("(none)"), QString());
-		for (auto &it : apps)
-			r.app->addItem(it.first, it.second);
-		SelectData(r.app, cur);
-	}
 }
 
 void MainWindow::LoadSettingsIntoUi()
@@ -421,6 +397,9 @@ void MainWindow::LoadSettingsIntoUi()
 	{
 		int idx = resBox->findData(settings.outputHeight);
 		resBox->setCurrentIndex(idx >= 0 ? idx : 1);
+		idx = extraResBox->findData(settings.extraHeight);
+		extraResBox->setCurrentIndex(idx >= 0 ? idx : 1);
+		extraResBox->setEnabled(settings.clipAllMonitors);
 	}
 	autoTracks->setValue(settings.autoTracks);
 	audioSimple->setChecked(settings.audioMode == AudioMode::Simple);
@@ -429,11 +408,7 @@ void MainWindow::LoadSettingsIntoUi()
 	RefreshDeviceLists();
 	for (QComboBox *b : {gameWindow})
 		b->clear();
-	for (AppRow &r : appRows)
-		r.app->clear();
 	RefreshAppLists();
-	for (int i = 0; i < appRows.size(); i++)
-		appRows[i].name->setText(i < settings.appTracks.size() ? settings.appTracks[i].name : QString());
 
 	UpdateModeVisibility();
 	editor->SetFolder(settings.outputDir);
@@ -462,20 +437,11 @@ AppSettings MainWindow::SettingsFromUi() const
 	s.clipAllMonitors = allMonitors->isChecked();
 	s.extraFps = extraFpsBox->currentData().toInt();
 	s.outputHeight = resBox->currentData().toInt();
+	s.extraHeight = extraResBox->currentData().toInt();
 	s.autoTracks = autoTracks->value();
 	s.audioMode = audioPerApp->isChecked() ? AudioMode::PerApp : AudioMode::Simple;
 	s.micDevice = micDev->currentData().toString();
 	s.desktopDevice = deskDev->currentData().toString();
-	s.appTracks.clear();
-	for (const AppRow &r : appRows) {
-		QString id = r.app->currentData().toString();
-		if (id.isEmpty())
-			continue;
-		QString name = r.name->text().trimmed();
-		if (name.isEmpty())
-			name = FriendlyAppName(id);
-		s.appTracks.append({name, id});
-	}
 	return s;
 }
 
@@ -536,11 +502,11 @@ void MainWindow::UpdateStatus()
 	int px = (int)(18 * scale);
 	bufferStatus->setStyleSheet(QString("font-size: %1px; font-weight: bold; padding: 8px; color: %2;")
 					    .arg(px)
-					    .arg(buf ? "#2e9d4f" : "#999"));
+					    .arg(buf ? "#ffffff" : "#6b6b6b"));
 	recStatus->setText(rec ? tr("● RECORDING") : tr("○ Not recording"));
 	recStatus->setStyleSheet(QString("font-size: %1px; font-weight: bold; padding: 8px; color: %2;")
 					 .arg(px)
-					 .arg(rec ? "#d23a3a" : "#999"));
+					 .arg(rec ? "#ff4d4d" : "#6b6b6b"));
 	recBtn->setText(rec ? tr("Stop Recording") : tr("Start Recording"));
 	trayRecord->setText(recBtn->text());
 	clipBtn->setEnabled(buf);
@@ -563,16 +529,11 @@ void MainWindow::Notify(const QString &title, const QString &msg)
 
 void MainWindow::UpdateAutoTracks()
 {
-	if (settings.audioMode != AudioMode::PerApp || settings.autoTracks == 0) {
+	if (settings.audioMode != AudioMode::PerApp) {
 		autoStatus->clear();
 		return;
 	}
-	QStringList apps = engine->AutoTrackApps();
-	int first = 3 + (int)settings.appTracks.size();
-	QStringList parts;
-	for (int i = 0; i < apps.size(); i++)
-		parts << tr("Track %1: %2").arg(first + i).arg(apps[i].isEmpty() ? tr("waiting for an app") : apps[i]);
-	autoStatus->setText(tr("Right now: ") + parts.join(" · "));
+	autoStatus->setText(tr("Right now:\n") + engine->AppTrackStatus().join("\n"));
 }
 
 void MainWindow::resizeEvent(QResizeEvent *event)

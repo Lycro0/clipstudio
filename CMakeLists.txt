@@ -32,6 +32,7 @@ add_executable(ClipStudio WIN32
   src/Hotkeys.cpp src/Hotkeys.hpp
   src/MainWindow.cpp src/MainWindow.hpp
   src/Muxer.cpp src/Muxer.hpp
+  src/Theme.cpp src/Theme.hpp
   src/VideoCapture.cpp src/VideoCapture.hpp
   src/WinUtil.cpp src/WinUtil.hpp
   src/app.rc

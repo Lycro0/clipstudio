@@ -283,4 +283,23 @@ bool IsProcessRunning(const QString &exe)
 	return found;
 }
 
+QStringList RunningExes()
+{
+	QStringList list;
+	QSet<QString> seen;
+	HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	if (snap == INVALID_HANDLE_VALUE)
+		return list;
+	PROCESSENTRY32W pe = {sizeof(pe)};
+	for (BOOL ok = Process32FirstW(snap, &pe); ok; ok = Process32NextW(snap, &pe)) {
+		QString exe = QString::fromWCharArray(pe.szExeFile);
+		if (!seen.contains(exe.toLower())) {
+			seen.insert(exe.toLower());
+			list << exe;
+		}
+	}
+	CloseHandle(snap);
+	return list;
+}
+
 } // namespace WinUtil

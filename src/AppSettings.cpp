@@ -39,6 +39,7 @@ void AppSettings::load()
 	clipAllMonitors = s.value("video/allMonitors", d.clipAllMonitors).toBool();
 	outputHeight = s.value("video/outputHeight", d.outputHeight).toInt();
 	extraFps = s.value("video/extraFps", d.extraFps).toInt();
+	extraHeight = s.value("video/extraHeight", d.extraHeight).toInt();
 
 	audioMode = s.value("audio/mode", "perapp").toString() == "perapp" ? AudioMode::PerApp : AudioMode::Simple;
 	autoTracks = std::clamp(s.value("audio/autoTracks", d.autoTracks).toInt(), 0, kMaxAutoTracks);
@@ -67,6 +68,10 @@ void AppSettings::load()
 			appTracks.removeLast();
 	}
 
+	// Version 3: fixed Discord/Spotify/Game tracks + more automatic tracks.
+	if (s.value("general/settingsVersion", 0).toInt() < 3)
+		autoTracks = std::max(autoTracks, d.autoTracks);
+
 	startMinimized = s.value("general/startMinimized", false).toBool();
 }
 
@@ -90,6 +95,7 @@ void AppSettings::save() const
 	s.setValue("video/allMonitors", clipAllMonitors);
 	s.setValue("video/outputHeight", outputHeight);
 	s.setValue("video/extraFps", extraFps);
+	s.setValue("video/extraHeight", extraHeight);
 	s.setValue("audio/autoTracks", autoTracks);
 	s.setValue("audio/mode", audioMode == AudioMode::PerApp ? "perapp" : "simple");
 	s.setValue("audio/mic", micDevice);
@@ -102,6 +108,6 @@ void AppSettings::save() const
 	}
 	s.endArray();
 	s.setValue("general/startMinimized", startMinimized);
-	s.setValue("general/settingsVersion", 2);
+	s.setValue("general/settingsVersion", 3);
 	s.sync();
 }

@@ -79,15 +79,10 @@ private:
 	QSpinBox *autoTracks;
 	QLabel *autoStatus;
 	QCheckBox *allMonitors;
-	QComboBox *resBox, *extraFpsBox;
+	QComboBox *resBox, *extraFpsBox, *extraResBox;
 
 	/* size-based scaling */
 	double scale = 1.0;
 	double baseFontPt = 9.0;
 	QList<QPushButton *> bigButtons;
-	struct AppRow {
-		QComboBox *app;
-		QLineEdit *name;
-	};
-	QVector<AppRow> appRows;
 };

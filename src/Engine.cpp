@@ -133,14 +133,6 @@ NameValueList Engine::AvailableEncoders()
 	return cached;
 }
 
-QStringList Engine::AutoTrackApps()
-{
-	std::lock_guard<std::mutex> lock(autoMutex);
-	QStringList out;
-	for (const AutoSlot &a : autoSlots)
-		out << a.exe;
-	return out;
-}
 
 /* "Discord.exe" -> "Discord" */
 static QString FriendlyName(const QString &exe)
@@ -153,13 +145,45 @@ static QString FriendlyName(const QString &exe)
 	return n;
 }
 
+static QString SlotTitle(int kind, const QString &exe, int autoNumber)
+{
+	switch (kind) {
+	case 0: return "Discord";
+	case 1: return "Spotify";
+	case 2: return exe.isEmpty() ? QString("Game") : QString("Game (%1)").arg(FriendlyName(exe));
+	default: return exe.isEmpty() ? QString("Other app %1").arg(autoNumber) : FriendlyName(exe);
+	}
+}
+
 QStringList Engine::CurrentTrackNames()
 {
 	QStringList names = fixedTrackNames;
 	std::lock_guard<std::mutex> lock(autoMutex);
-	for (size_t i = 0; i < autoSlots.size(); i++)
-		names << (autoSlots[i].exe.isEmpty() ? QString("Other app %1").arg(i + 1) : FriendlyName(autoSlots[i].exe));
+	int autoNumber = 0;
+	for (const AutoSlot &a : autoSlots) {
+		if (a.kind == SlotKind::Auto)
+			autoNumber++;
+		names << SlotTitle((int)a.kind, a.exe, autoNumber);
+	}
 	return names;
+}
+
+QStringList Engine::AppTrackStatus()
+{
+	std::lock_guard<std::mutex> lock(autoMutex);
+	QStringList out;
+	int track = (int)fixedTrackNames.size() + 1;
+	for (const AutoSlot &a : autoSlots) {
+		QString what;
+		switch (a.kind) {
+		case SlotKind::Discord: what = "Discord"; break;
+		case SlotKind::Spotify: what = "Spotify"; break;
+		case SlotKind::Game: what = "Game"; break;
+		default: what = "Auto"; break;
+		}
+		out << QString("Track %1 (%2): %3").arg(track++).arg(what, a.exe.isEmpty() ? QString("waiting") : a.exe);
+	}
+	return out;
 }
 
 bool Engine::OpenEncoders(QString &error)
@@ -246,9 +270,10 @@ bool Engine::Apply(const AppSettings &settings, QString &error)
 		p->label = label;
 		QSize size = WinUtil::MonitorSize(mon);
 		int w = size.width(), h = size.height();
-		if (s.outputHeight > 0 && h > s.outputHeight) { // scale down, keep the aspect ratio
-			w = (int)((int64_t)w * s.outputHeight / h);
-			h = s.outputHeight;
+		int maxH = isMain ? s.outputHeight : s.extraHeight;
+		if (maxH > 0 && h > maxH) { // scale down, keep the aspect ratio
+			w = (int)((int64_t)w * maxH / h);
+			h = maxH;
 		}
 		p->width = std::max(2, w & ~1);
 		p->height = std::max(2, h & ~1);
@@ -283,20 +308,19 @@ bool Engine::Apply(const AppSettings &settings, QString &error)
 	} else {
 		fixedTrackNames = {"Mic + Desktop", "Mic"};
 		trackSources = {{desktop, mic}, {mic}};
-		for (int i = 0; i < s.appTracks.size() && i < kMaxAppTracks; i++) {
-			const AppAudioTrack &app = s.appTracks[i];
-			if (app.exe.isEmpty())
-				continue;
-			sources.push_back(
-				std::make_unique<AudioCapture>(AudioCapture::Kind::Application, app.exe.toStdWString()));
-			fixedTrackNames << (app.name.isEmpty() ? FriendlyName(app.exe) : app.name);
-			trackSources.push_back({(int)sources.size() - 1});
-		}
+		// Tracks 3, 4, 5 = Discord, Spotify, Game; then the automatic tracks.
+		std::vector<SlotKind> kinds = {SlotKind::Discord, SlotKind::Spotify, SlotKind::Game};
+		for (int i = 0; i < std::clamp(s.autoTracks, 1, kMaxAutoTracks); i++)
+			kinds.push_back(SlotKind::Auto);
 		std::lock_guard<std::mutex> lock(autoMutex);
-		for (int i = 0; i < s.autoTracks && i < kMaxAutoTracks; i++) {
+		capturedExe.clear();
+		for (SlotKind k : kinds) {
 			sources.push_back(std::make_unique<AudioCapture>(AudioCapture::Kind::Application, L""));
-			autoSlots.push_back({(int)sources.size() - 1, QString()});
-			trackSources.push_back({(int)sources.size() - 1});
+			AutoSlot slot;
+			slot.kind = k;
+			slot.source = (int)sources.size() - 1;
+			autoSlots.push_back(slot);
+			trackSources.push_back({slot.source});
 		}
 	}
 
@@ -356,53 +380,134 @@ void Engine::Shutdown()
 /* ------------------------------------------------------------------------ */
 /* Auto app tracks                                                          */
 
+static bool IsDiscord(const QString &exe)
+{
+	// Discord.exe, DiscordCanary.exe, DiscordPTB.exe, DiscordDevelopment.exe
+	return exe.startsWith("discord", Qt::CaseInsensitive) && !exe.contains("update", Qt::CaseInsensitive);
+}
+
+static bool IsSpotify(const QString &exe)
+{
+	return exe.compare("Spotify.exe", Qt::CaseInsensitive) == 0;
+}
+
+/* Apps that can be fullscreen but are not games. */
+static bool NeverAGame(const QString &exe)
+{
+	static const QStringList list = {"chrome.exe",   "msedge.exe",   "firefox.exe", "opera.exe",
+					 "opera_gx.exe", "brave.exe",    "vivaldi.exe", "explorer.exe",
+					 "vlc.exe",      "ClipStudio.exe", "obs64.exe", "mpc-hc64.exe"};
+	return list.contains(exe, Qt::CaseInsensitive) || IsDiscord(exe) || IsSpotify(exe);
+}
+
+/* Keeps tracks 3+ pointed at the right apps:
+ *   Discord / Spotify : whichever edition is running
+ *   Game              : the window the game capture follows, or the fullscreen app
+ *   Auto              : every other app that plays sound. Apps that closed are dropped right
+ *                       away; when all auto tracks are busy, the one that has been silent the
+ *                       longest (20 s+) is given to the new app, so a new app is never left
+ *                       without a track. */
 void Engine::WatchThread()
 {
 	CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-
-	QStringList fixed = {"ClipStudio.exe"};
-	for (const AppAudioTrack &t : s.appTracks)
-		fixed << t.exe;
-	auto isFixed = [&](const QString &exe) { return fixed.contains(exe, Qt::CaseInsensitive); };
+	const int64_t kIdleBeforeReuseMs = 20000;
 
 	while (running) {
 		bool changed = false;
-		QStringList playing = WinUtil::AppsPlayingAudio();
+		const QStringList playing = WinUtil::AppsPlayingAudio();
+		const QStringList procs = WinUtil::RunningExes();
+		const int64_t now = (int64_t)GetTickCount64();
+		auto isRunning = [&](const QString &exe) { return procs.contains(exe, Qt::CaseInsensitive); };
+		auto isPlaying = [&](const QString &exe) { return playing.contains(exe, Qt::CaseInsensitive); };
+
+		// Game candidate (outside the lock: window queries can be slow).
+		QString gameCandidate;
+		if (!s.gameExe.isEmpty()) {
+			gameCandidate = s.gameExe;
+		} else {
+			HWND fs = WinUtil::FindFullscreenWindow();
+			if (fs)
+				gameCandidate = WinUtil::ExeForWindow(fs);
+		}
+
 		{
 			std::lock_guard<std::mutex> lock(autoMutex);
+			if (gameCandidate.isEmpty() || NeverAGame(gameCandidate))
+				gameCandidate = capturedExe.isEmpty() || NeverAGame(capturedExe) ? QString() : capturedExe;
 
-			// Free tracks whose app has closed.
+			auto assign = [&](AutoSlot &a, const QString &exe) {
+				if (a.exe.compare(exe, Qt::CaseInsensitive) == 0)
+					return;
+				a.exe = exe;
+				a.lastActive = now;
+				sources[(size_t)a.source]->SetTarget(exe.toStdWString());
+				changed = true;
+			};
+
+			QString gameExe;
 			for (AutoSlot &a : autoSlots) {
-				if (!a.exe.isEmpty() && !WinUtil::IsProcessRunning(a.exe)) {
-					a.exe.clear();
-					sources[(size_t)a.source]->SetTarget(L"");
-					changed = true;
+				if (a.kind == SlotKind::Discord) {
+					QString pick;
+					for (const QString &e : playing) // prefer the edition that is playing
+						if (IsDiscord(e))
+							pick = e;
+					if (pick.isEmpty() && !a.exe.isEmpty() && isRunning(a.exe))
+						pick = a.exe;
+					for (const QString &e : procs)
+						if (pick.isEmpty() && IsDiscord(e))
+							pick = e;
+					assign(a, pick);
+				} else if (a.kind == SlotKind::Spotify) {
+					assign(a, isRunning("Spotify.exe") ? QString("Spotify.exe") : QString());
+				} else if (a.kind == SlotKind::Game) {
+					QString pick = !gameCandidate.isEmpty() && isRunning(gameCandidate) ? gameCandidate : QString();
+					if (pick.isEmpty() && !a.exe.isEmpty() && isRunning(a.exe))
+						pick = a.exe; // keep the last game until it closes (e.g. while alt-tabbed)
+					assign(a, pick);
+					gameExe = a.exe;
 				}
 			}
 
-			// Give every new app that plays sound its own track (while tracks are free).
+			// Automatic tracks.
+			for (AutoSlot &a : autoSlots) {
+				if (a.kind != SlotKind::Auto || a.exe.isEmpty())
+					continue;
+				bool taken = (!gameExe.isEmpty() && a.exe.compare(gameExe, Qt::CaseInsensitive) == 0) ||
+					     IsDiscord(a.exe) || IsSpotify(a.exe);
+				if (!isRunning(a.exe) || taken)
+					assign(a, QString()); // closed, or now has its own track
+				else if (isPlaying(a.exe))
+					a.lastActive = now;
+			}
 			for (const QString &exe : playing) {
-				if (isFixed(exe))
+				if (IsDiscord(exe) || IsSpotify(exe) || exe.compare("ClipStudio.exe", Qt::CaseInsensitive) == 0 ||
+				    (!gameExe.isEmpty() && exe.compare(gameExe, Qt::CaseInsensitive) == 0))
 					continue;
-				bool taken = std::any_of(autoSlots.begin(), autoSlots.end(), [&](const AutoSlot &a) {
-					return a.exe.compare(exe, Qt::CaseInsensitive) == 0;
+				bool has = std::any_of(autoSlots.begin(), autoSlots.end(), [&](const AutoSlot &a) {
+					return a.kind == SlotKind::Auto && a.exe.compare(exe, Qt::CaseInsensitive) == 0;
 				});
-				if (taken)
+				if (has)
 					continue;
-				for (AutoSlot &a : autoSlots) {
-					if (a.exe.isEmpty()) {
-						a.exe = exe;
-						sources[(size_t)a.source]->SetTarget(exe.toStdWString());
-						changed = true;
+				AutoSlot *target = nullptr;
+				for (AutoSlot &a : autoSlots)
+					if (a.kind == SlotKind::Auto && a.exe.isEmpty()) {
+						target = &a;
 						break;
 					}
+				if (!target) { // all busy: reuse the one that has been quiet the longest
+					for (AutoSlot &a : autoSlots)
+						if (a.kind == SlotKind::Auto && now - a.lastActive >= kIdleBeforeReuseMs &&
+						    (!target || a.lastActive < target->lastActive))
+							target = &a;
 				}
+				if (target)
+					assign(*target, exe);
 			}
 		}
 		if (changed)
 			QMetaObject::invokeMethod(this, "AutoTracksChanged", Qt::QueuedConnection);
 
-		for (int i = 0; i < 20 && running; i++)
+		for (int i = 0; i < 10 && running; i++)
 			Sleep(100);
 	}
 	CoUninitialize();
@@ -636,8 +741,12 @@ void Engine::VideoThread(int index)
 		}
 		HWND want = s.gameExe.isEmpty() ? WinUtil::FindFullscreenWindow() : WinUtil::FindWindowForExe(s.gameExe);
 		if (want && (want != capture.Window() || !capture.Active())) {
-			if (capture.StartWindow(want, s.captureCursor))
+			if (capture.StartWindow(want, s.captureCursor)) {
 				frame.serial = 0;
+				QString exe = WinUtil::ExeForWindow(want);
+				std::lock_guard<std::mutex> lock(autoMutex);
+				capturedExe = exe;
+			}
 		}
 	};
 

@@ -28,5 +28,6 @@ QString ExeForProcess(DWORD pid);
 /* Executables that currently have an active (playing) audio session on any output device. */
 QStringList AppsPlayingAudio();
 bool IsProcessRunning(const QString &exe);
+QStringList RunningExes(); // every running executable name, once each
 
 } // namespace WinUtil
