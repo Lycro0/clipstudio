@@ -6,6 +6,7 @@
 
 #include "Engine.hpp"
 #include "MainWindow.hpp"
+#include "Theme.hpp"
 #include "VideoCapture.hpp"
 
 int main(int argc, char *argv[])
@@ -14,6 +15,7 @@ int main(int argc, char *argv[])
 	QApplication::setApplicationName("ClipStudio");
 	QApplication::setOrganizationName("ClipStudio");
 	QApplication::setQuitOnLastWindowClosed(false); // keeps running in the tray
+	ApplyDarkTheme(app);
 
 	QLockFile lock(QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation)).filePath("clipstudio.lock"));
 	if (!lock.tryLock(100)) {

@@ -13,11 +13,11 @@ struct AppAudioTrack {
 
 /* Audio track layout:
  *   Simple : 1 = Mic + Desktop, 2 = Desktop, 3 = Mic
- *   Per-app: 1 = Mic + Desktop (everything), 2 = Mic,
- *            then the fixed app tracks (default Discord, Spotify),
- *            then "auto" tracks that attach to any other app playing sound (e.g. a game). */
-constexpr int kMaxAppTracks = 4;
-constexpr int kMaxAutoTracks = 4;
+ *   Per-app: 1 = Mic + Desktop (everything), 2 = Mic, 3 = Discord (any edition),
+ *            4 = Spotify, 5 = the game being played (detected automatically),
+ *            6.. = automatic tracks for any other app that plays sound. */
+constexpr int kMaxAppTracks = 4; // legacy setting, no longer used
+constexpr int kMaxAutoTracks = 8;
 
 struct AppSettings {
 	QString clipHotkey = "Alt+O";
@@ -41,12 +41,13 @@ struct AppSettings {
 
 	bool clipAllMonitors = true; // also save a separate clip of every other monitor
 	int extraFps = 30;           // other monitors are recorded lighter than the main one
+	int extraHeight = 720;       // other monitors' resolution (0 = native)
 
 	AudioMode audioMode = AudioMode::PerApp;
 	QString micDevice = "default";
 	QString desktopDevice = "default";
 	QList<AppAudioTrack> appTracks; // fixed app tracks
-	int autoTracks = 3;             // extra tracks that follow whatever else plays sound
+	int autoTracks = 5;             // extra tracks that follow whatever else plays sound
 
 	bool startMinimized = false;
 

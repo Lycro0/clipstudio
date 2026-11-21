@@ -44,8 +44,8 @@ public:
 	/* Video encoders that work on this PC, as (display name, ffmpeg encoder name). */
 	static NameValueList AvailableEncoders();
 
-	/* Which app each auto track is currently following (for the UI). */
-	QStringList AutoTrackApps();
+	/* What each app track (3, 4, 5, ...) is following right now, for the UI. */
+	QStringList AppTrackStatus();
 
 public slots:
 	void SaveClip();
@@ -86,9 +86,12 @@ private:
 		QString path;
 	};
 
+	enum class SlotKind { Discord, Spotify, Game, Auto };
 	struct AutoSlot {
-		int source = -1; // index into sources
-		QString exe;     // app currently followed ("" = free)
+		SlotKind kind = SlotKind::Auto;
+		int source = -1;        // index into sources
+		QString exe;            // app currently followed ("" = free)
+		int64_t lastActive = 0; // GetTickCount64() when it last played sound
 	};
 
 	bool OpenEncoders(QString &error);
@@ -113,6 +116,7 @@ private:
 
 	std::mutex autoMutex;
 	std::vector<AutoSlot> autoSlots;
+	QString capturedExe; // exe of the window the main capture follows (game mode), under autoMutex
 
 	std::thread audioThread, watchThread;
 	std::atomic<bool> running{false};
