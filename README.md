@@ -4,6 +4,10 @@ A lightweight Windows app for **clipping and recording games**. It runs in the s
 last N seconds in memory, and saves a clip when you press a hotkey. It can put each app's audio
 (game, Discord, Spotify…) on its own audio track, and lets you rebalance those tracks afterwards.
 
+[![ClipStudio trailer](assets/trailer-preview.webp)](https://youtu.be/FhgdoKNCUIw)
+
+**[Watch the trailer on YouTube](https://youtu.be/FhgdoKNCUIw)**
+
 ## Download
 Grab **`ClipStudio-Setup-x.y.z.exe`** from the [Releases](../../releases) page and run it.
 A portable `.zip` is attached too.
