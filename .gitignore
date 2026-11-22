@@ -10,3 +10,4 @@ assets/*.ico
 # trailer renders and its copy of the icon
 trailer/*.mp4
 trailer/icon.png
+!assets/readme-icon.png
